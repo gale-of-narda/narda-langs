@@ -1,0 +1,76 @@
+{
+    "Sentences": {
+        "good": [
+            "a",
+            "y",
+            "o",
+            "u",
+            "ay",
+            "ya",
+            "ao",
+            "yu",
+            "oa",
+            "uy",
+            "ae",
+            "oe",
+            "yı",
+            "uı",
+            "ou",
+            "uo",
+            "oeu",
+            "uoe",
+            "uıo",
+            "ouı",
+            "aeyı",
+            "oeuı",
+            "aaa",
+            "yay",
+            "auo",
+            "oouu",
+            "uaeuı",
+            "oeouıu",
+            "oeuıuıoe",
+            "uuıuooeo"
+        ],
+        "bad": [
+            "e",
+            "ı",
+            "ue",
+            "oı",
+            "ıu",
+            "eo",
+            "aue",
+            "yoı"
+        ]
+    },
+    "Words": {
+        "good": [
+            "hréag",
+            "ar", 
+            "ra", 
+            "ár", 
+            "rá",
+            "raun",
+            "ráun",
+            "ara",
+            "ára",
+            "ará",
+            "ráerar",
+            "raráer",
+            "ráen",
+            "nna",
+            "réald",
+            "raráarar"
+        ],
+        "bad": [
+            "a",
+            "w",
+            "ráaar",
+            "raéan",
+            "wá",
+            "áw",
+            "akakakak",
+            "kakakaka"
+        ]
+    }
+}

@@ -1,0 +1,9 @@
+{
+    "Content": {
+        "C": "wlrmnzsvfȷcxhdtbpđŧgk",
+        "V": "əayoeuı"
+    },
+    "Separators": ["", " ", "."],
+    "Breakers": ["","́",""],
+    "Embedders": [["<", ">"],[":", ";"], []]
+}
