@@ -6,7 +6,6 @@ from pathlib import Path
 
 from parser_entities import Tree, Node, Mask
 
-
 @dataclass
 class Alphabet:
     content: Any
@@ -45,7 +44,7 @@ class Loader:
         return
 
     def load_alphabet(self):
-        path = Path(self.path + "alphabet.json")
+        path = Path(self.path + "params/alphabet.json")
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)
         params = Alphabet(
@@ -63,7 +62,7 @@ class Loader:
         return params
 
     def load_grules(self, level: int = 0) -> GeneralRules:
-        path = Path(self.path + "rules_general.json")
+        path = Path(self.path + "params/rules_general.json")
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)
         params = GeneralRules(
@@ -76,7 +75,7 @@ class Loader:
         return params
 
     def load_srules(self, level: int = 0):
-        path = Path(self.path + "rules_special.json")
+        path = Path(self.path + "params/rules_special.json")
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)
         params = SpecialRules(
