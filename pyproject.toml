@@ -1,0 +1,21 @@
+[project]
+name = "narda-langs"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "rich>=14.3.2",
+    "typer[all]>=0.24.0",
+]
+
+[dependency-groups]
+dev = [
+    "marimo>=0.19.0",
+    "ipykernel>=7.1.0",
+    "pyinstaller>=6.19.0",
+    "pytest>=9.0.0",
+    "ty>=0.0.1a31",
+    "mkdocs-material>=9.7.6",
+    "mkdocstrings[python]>=1.0.4",
+]
