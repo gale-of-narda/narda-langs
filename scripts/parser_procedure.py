@@ -4,7 +4,7 @@ from typing import Tuple, List, Dict, Any, Optional, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-from parser_entities import Tree, Node, Mask
+from scripts.parser_entities import Tree, Node, Mask
 
 @dataclass
 class Alphabet:
