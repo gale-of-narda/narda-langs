@@ -1,14 +1,15 @@
 import json
 import pytest
-from parser_procedure import Parser
 from pathlib import Path
+
+from scripts.parser_procedure import Parser
 
 p0 = Parser()
 p0.load_params(level=0)
 p1 = Parser()
 p1.load_params(level=1)
 
-path = Path("testing.json")
+path = Path("testing/testing.json")
 with path.open("r", encoding="utf-8") as f:
     tests = json.load(f)
 

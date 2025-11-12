@@ -272,21 +272,41 @@ class Tree:
         target.content.append(subtree)
         return
 
-    def get_item_by_key(self, key: List) -> Node:
-        if not key or not isinstance(key[0], List):
-            key = [key, [None] * len(key)]
-        item = self.root
-        for i in range(len(key[0])):
-            item = item.children[key[0][i]]
-            if key[1][i] is not None:
-                item = item.content[key[1][i]]
-        return item
+    def get_item_by_key(self, keys: List[List[int]]) -> Node:
+        def fix_key(key: List) -> List:
+            if not key:
+                return key
+            i, ks = 0, []
+            marks = [[True] * s if s > 1 else False for s in self.struct]
+            for m in marks[: len(key) - 1]:
+                if isinstance(m, list):
+                    ks.append(key[i : i + len(m)])
+                    i += len(m)
+                else:
+                    ks.append(key[i])
+                    i += 1
+            return ks
 
-    def set_item_by_key(self, key: List, cstr: str) -> None:
-        st = "".join([str(k) for k in key])
-        for node in self.nodes:
-            if node.key == st:
-                e = Element(cstr)
-                node.map_element(e)
-                return
-        raise Exception(f"Couldn't find node with key {st}")
+        if not keys or not isinstance(keys[0], List):
+            keys = [keys, [None] * len(keys)]
+
+        keys[0] = fix_key(keys[0])
+
+        node = self.root
+        for i in range(len(keys[0])):
+            k = keys[0][i]
+            if isinstance(k, list):
+                num = int("".join(str(n) for n in k) or "0", 2)
+                node = node.children[num]
+            else:
+                node = node.children[k]
+            if keys[1][i]:
+                compounds = [c for c in node.content if isinstance(c, (Node, Tree))]
+                node = compounds[keys[1][i]]
+        return node
+
+    def set_item_by_key(self, keys: List[List[int]], cstr: str) -> None:
+        e = Element(cstr)
+        node = self.get_item_by_key(keys)
+        node.map_element(e)
+        return
