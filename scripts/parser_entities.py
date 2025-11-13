@@ -9,7 +9,6 @@ class Mask:
         self.literals, self.optionals = self._decode(premask)
         self.cyclic = cyclic
         self.pos: int = -1
-        self.rep: int = 0
         return
 
     def __repr__(self) -> str:
@@ -47,25 +46,23 @@ class Mask:
 
         return literals, optionals
 
-    def move(self, step: int = 1, inplace: bool = True) -> Optional[int]:
+    def move(self, step: int = 1, inplace: bool = False) -> Tuple[int, int]:
+        rep_incr = False
         ln = len(self.literals)
-        rep_incr = 0
         if self.cyclic:
             new_pos = (self.pos + step) % ln
-            rep_incr = (self.pos + step) // ln
+            rep_incr = self.pos + step > ln
         else:
             new_pos = min(self.pos + step, ln - 1)
+
         if inplace:
             self.pos = new_pos
-            self.rep += rep_incr
-            if rep_incr > 0:
-                print(f"-> Increment {rep_incr} at pos={self.pos}, step={step}")
             return None
         else:
-            return new_pos
+            return (new_pos, int(rep_incr))
 
     def match(self, rep: str, pos: int = 0) -> bool:
-        target_pos = self.move(pos, inplace=False)
+        target_pos = self.move(pos)[0]
         if isinstance(target_pos, int):
             return any([rep in m for m in self.literals[target_pos]])
         else:
@@ -124,6 +121,7 @@ class Node:
             return m
 
     def reset_masks(self, d: int, pstances: List[int], side: int) -> None:
+        # Compounds?
         masks = self.get_masks(d, pstances)
         masks[side].pos = -1
         return
@@ -278,13 +276,14 @@ class Tree:
                 return key
             i, ks = 0, []
             marks = [[True] * s if s > 1 else False for s in self.struct]
-            for m in marks[: len(key) - 1]:
-                if isinstance(m, list):
-                    ks.append(key[i : i + len(m)])
-                    i += len(m)
-                else:
-                    ks.append(key[i])
-                    i += 1
+            for m in marks:
+                if i < len(key):
+                    if isinstance(m, list):
+                        ks.append(key[i : i + len(m)])
+                        i += len(m)
+                    else:
+                        ks.append(key[i])
+                        i += 1
             return ks
 
         if not keys or not isinstance(keys[0], List):

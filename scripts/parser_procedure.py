@@ -1,41 +1,10 @@
 import json
 
-from typing import Tuple, List, Dict, Any, Optional, Iterable
-from dataclasses import dataclass
+from typing import Optional, Tuple, List, Dict, Iterable
 from pathlib import Path
 
 from scripts.parser_entities import Tree, Node, Mask
-
-@dataclass
-class Alphabet:
-    content: Any
-    separators: Any
-    breakers: Any
-    embedders: Any
-
-
-@dataclass
-class GeneralRules:
-    struct: Any
-    perms: Any
-    revs: Any
-    rets: Any
-    skips: Any
-
-
-@dataclass
-class SpecialRules:
-    tperms: Any
-    tneuts: Any
-    lemb: Any
-    demb: Any
-
-
-@dataclass
-class Buffer:
-    tree: Tree = Tree([0])
-    pst: Optional[str] = None
-    mapping: Optional[Dict] = None
+from scripts.parser_dataclasses import Alphabet, GeneralRules, SpecialRules, Buffer
 
 
 class Loader:
@@ -185,27 +154,25 @@ class Parser:
         else:
             return s
 
-    def _compare(self, cand: str, mask: Mask) -> bool:
+    def _compare(self, cand: str, mask: Mask) -> Tuple[int, int]:
         # Candidate string is compared to the mask via its representation
         rep = self._represent(cand)
         ln = len(mask.literals)
         # True if rep already matches the current (positive) position
         if mask.pos >= 0 and mask.match(rep):
-            return True
+            return mask.move(0)
         # Else try to move the position one step; true if rep matches
         if mask.match(rep, 1):
-            mask.move(1)
-            return True
+            return mask.move(1)
         # Else check if position is optional; try the next one if this one fails
         # When a non-optional position is reached, make the final decision
         incr = 1
-        while ln > 1 and mask.optionals[mask.move(incr, inplace=False) or 0]:
+        while ln > 1 and mask.optionals[mask.move(incr)[0] or 0]:
             incr += 1
             if mask.match(rep, incr):
-                mask.move(incr)
-                return True
-        # Return false if all else failed
-        return False
+                return mask.move(incr)
+        # Return none if all else failed
+        return None
 
     def _match_char(self, cand: str, d: int, node: Node, stances: List[int]):
         r = node.rank
@@ -224,44 +191,49 @@ class Parser:
         # The second side will be matched next
         if cand == self.alphabet.breakers[self.level]:
             print("Ignoring the breaker")
-            fm.move()
-            sm.move()
-            return -1
+            fm.move(1, inplace=True)
+            sm.move(1, inplace=True)
+            return (-1, -1)
 
         # Try to match the candidate to the first half
         # Ensure the second half wasn't yet matched OR return is not restricted
         if sm.pos < 0 or not ret:
             print(f"-> Comparing {cand} with first mask {fm}")
-            if self._compare(cand, fm):
+            comp_res = self._compare(cand, fm)
+            if comp_res:
+                fm.pos = comp_res[0]
                 node.reset_masks(d, pstances, int(not rev))
-                return int(rev)
+                return (int(rev), comp_res[1])
 
         # If unsuccessful, proceed to the second half
         # Ensure the first half was already matched OR skipping is not restricetd
         if fm.pos >= 0 or not skip:
             print(f"-> Comparing {cand} with second mask {sm}")
-            if self._compare(cand, sm):
+            comp_res = self._compare(cand, sm)
+            if comp_res:
+                sm.pos = comp_res[0]
                 node.reset_masks(d, pstances, int(rev))
-                return int(not rev)
+                return (int(not rev), comp_res[1])
 
         # If both unsuccessful, the char's stance cannot be determined
         return None
 
     def _process_char(self, s: str) -> List[int]:
-        stances = []
+        stances = [[], []]
         # Iterating over the ranks of the tree
         for r in range(len(self.buff.tree.struct)):
-            node = self.buff.tree.get_item_by_key(stances)
+            node = self.buff.tree.get_item_by_key(stances[0])
             # Determining the dichotomic stance of the char
             for d in range(self.buff.tree.struct[r]):
-                stance = self._match_char(s, d, node, stances)
+                matches = self._match_char(s, d, node, stances[0])
                 # No stance means failure, -1 means char to be skipped
-                if stance is None:
-                    return []
-                elif stance == -1:
-                    return [-1]
+                if matches is None:
+                    return [[], []]
+                elif matches == (-1, -1):
+                    return [[-1], [-1]]
                 else:
-                    stances.append(stance)
+                    stances[0].append(matches[0])
+                    stances[1].append(matches[1])
         return stances
 
     def _neutralize(self) -> bool:
@@ -286,6 +258,8 @@ class Parser:
         tree = self.buff.tree
         rep = self._represent(c)
 
+        m = m[0]
+
         for n in tree.nodes:
             term = self.level == 1 and n.rank == len(tree.struct)
             dkey = [int(k) for k in n.key]
@@ -303,7 +277,7 @@ class Parser:
         return True
 
     def _nonbinary_shift(self, maps: List[List[int]], i: int) -> None:
-        m = maps[i]
+        m = maps[i][0]
         struct = self.buff.tree.struct
         lst = [r == 0 for s in struct for r in range(s)]
         for p, st in enumerate(lst):
@@ -312,11 +286,11 @@ class Parser:
             if not st:
                 if m[p] == rev:
                     mc = maps[i + 1 :] if not rev else maps[:i]
-                    if not any(mp[: p + 1] == m[:p] + [1 - m[p]] for mp in mc):
+                    if not any(mp[0][: p + 1] == m[:p] + [1 - m[p]] for mp in mc):
                         print(f"-> Caret moved at {m}")
                         m[1] = 1 - m[1]
         return
-    
+
     def _apply(self, mapping: Dict) -> bool:
         # Go through the mappings and set them to the tree
         for i, _ in enumerate(mapping["Characters"]):
@@ -341,11 +315,11 @@ class Parser:
             # Determine the stance of the char w.r.t all dichotomies
             stances = self._process_char(c)
             # If matching fails, halt the procedure
-            if stances == []:
+            if stances == [[], []]:
                 print(f"Failed to match '{c}'")
                 return False
             # If the char shouldn't be mapped, ignore it
-            elif stances == [-1]:
+            elif stances == [[-1], [-1]]:
                 continue
             # Otherwise, map the char with the stances determined
             else:
