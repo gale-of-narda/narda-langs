@@ -8,7 +8,8 @@ class Mask:
     def __init__(self, premask: str, cyclic: bool = True) -> None:
         self.literals, self.optionals = self._decode(premask)
         self.cyclic = cyclic
-        self.pos: int = -1
+        self.pos = -1
+        self.rep = 0
         return
 
     def __repr__(self) -> str:
@@ -47,19 +48,20 @@ class Mask:
         return literals, optionals
 
     def move(self, step: int = 1, inplace: bool = False) -> Tuple[int, int]:
-        rep_incr = False
         ln = len(self.literals)
         if self.cyclic:
             new_pos = (self.pos + step) % ln
-            rep_incr = self.pos + step > ln
+            new_rep = self.rep + (self.pos + step) // ln
         else:
             new_pos = min(self.pos + step, ln - 1)
+            new_rep = self.rep
 
         if inplace:
             self.pos = new_pos
+            self.rep = new_rep
             return None
         else:
-            return (new_pos, int(rep_incr))
+            return (new_pos, new_rep)
 
     def match(self, rep: str, pos: int = 0) -> bool:
         target_pos = self.move(pos)[0]
@@ -93,6 +95,7 @@ class Node:
         self.content = []
         self.masks = []
         self.compounds = []
+        self.complexes = []
         self.key = str()
         self.perm = str()
 
@@ -121,20 +124,15 @@ class Node:
             return m
 
     def reset_masks(self, d: int, pstances: List[int], side: int) -> None:
-        # Compounds?
         masks = self.get_masks(d, pstances)
         masks[side].pos = -1
         return
 
-    def map_element(self, e) -> None:
+    def map_element(self, e: Element) -> None:
         if isinstance(e, Element):
             self.content.append(e)
-        elif isinstance(e, list) and all(isinstance(c, Element) for c in e):
-            self.content += e
-        else:
-            raise Exception(f"""Failed to map {e} to node {self}
-                             as it is not an element""")
-        return
+            return
+        raise Exception(f"Failed to map {e} to node {self}: not an element")
 
 
 class Tree:
@@ -143,6 +141,7 @@ class Tree:
         self.root = Node()
         self.nodes = [self.root]
         self.traverse(self.root, self._populate)
+        self.perms = None
 
     def __repr__(self) -> str:
         return f"T{self.struct}"
@@ -167,10 +166,7 @@ class Tree:
                 self.nodes.append(n)
         return
 
-    def _draw(self, node: Node, depth: int | None = None, header: str = "└") -> str:
-        if depth is None:
-            depth = node.rank
-
+    def _draw(self, node: Node, depth: int = 0, header: str = "└", top = False) -> str:
         anc = node.parent
         ancs_last = []
         while anc is not None:
@@ -185,37 +181,28 @@ class Tree:
         prefix = "".join("  " if is_last else "│ " for is_last in ancs_last)
 
         last_sib = node.parent is None or node is node.parent.children[-1]
-        arrow = header if depth == 0 or last_sib else "├"
+        arrow = header if depth == 0 or top or last_sib else "├"
 
         st = prefix + arrow + "─" + repr(node) + "\n"
 
-        for item in node.content:
-            if isinstance(item, Node):
-                st += self._draw(item, depth + 1, "⤷")
-            elif isinstance(item, Tree):
-                st += prefix + "  " + "⤷─" + repr(item) + "\n"
-                st += item._draw(item.root, depth + 2)
-
         for ch in node.children:
             st += self._draw(ch, depth + 1)
+        for cd in node.compounds:
+            st += self._draw(cd, depth, "⤷", top=True)
+        for cx in node.complexes:
+            st += prefix + "  " + "⤷─" + repr(cx) + "\n"
+            st += cx._draw(cx.root, depth + 2, top=True)
 
         return st
 
-    def _get_subtree(self, target: Node):
-        def fill_perms(target, perms):
-            perms[target.rank].append(target.perm)
-            for ch in target.children:
-                fill_perms(ch, perms)
-            return perms
-
-        struct = self.struct[target.rank :]
-        perms = fill_perms(target, [[] for _ in range(len(self.struct) + 1)])
-        perms = [p for p in perms if p]
-
+    def _get_subtree(self, target: Optional[int]) -> Tree:
+        struct = self.struct
         subtree = Tree(struct)
-        subtree.set_permissions(perms)
-
-        return subtree
+        subtree.set_permissions(self.perms)
+        if target is None:
+            return subtree
+        else:
+            return subtree.nodes[target]
 
     def traverse(self, subroot: Node, fun: Callable) -> Optional[Any]:
         queue = deque([subroot])
@@ -241,7 +228,8 @@ class Tree:
             else:
                 return [split(perms[:mid], d - 1), split(perms[mid:], d - 1)]
 
-        # Set the permissions first
+        # Save and set the permissions first
+        self.perms = perms
         for n in self.nodes:
             n.perm = perms[n.rank][n.ranknum]
 
@@ -250,7 +238,7 @@ class Tree:
             if n.children:
                 length = int(math.log(len(n.children), 2))
                 masks = []
-                for d in range(length + 1):
+                for d in range(length):
                     mask = split([ch.perm for ch in n.children], d + 1)
                     masks.append(mask)
                 n.masks = masks
@@ -259,18 +247,17 @@ class Tree:
 
     def embed_compound(self, tnum: int) -> None:
         target = self.nodes[tnum]
-        subtree = self._get_subtree(target)
-        target.content.append(subtree.root)
-        del subtree
+        new_node = self._get_subtree(target.num)
+        target.compounds.append(new_node)
         return
 
     def embed_complex(self, tnum: int) -> None:
         target = self.nodes[tnum]
-        subtree = self._get_subtree(self.root)
-        target.content.append(subtree)
+        new_tree = self._get_subtree()
+        target.complexes.append(new_tree)
         return
 
-    def get_item_by_key(self, keys: List[List[int]]) -> Node:
+    def get_item_by_key(self, keys: List[List[int]], ignore_comp: bool = False):
         def fix_key(key: List) -> List:
             if not key:
                 return key
@@ -289,22 +276,30 @@ class Tree:
         if not keys or not isinstance(keys[0], List):
             keys = [keys, [None] * len(keys)]
 
+        item = self.root
         keys[0] = fix_key(keys[0])
 
-        node = self.root
         for i in range(len(keys[0])):
             k = keys[0][i]
             if isinstance(k, list):
                 num = int("".join(str(n) for n in k) or "0", 2)
-                node = node.children[num]
+                item = item.children[num]
             else:
-                node = node.children[k]
-            if keys[1][i]:
-                compounds = [c for c in node.content if isinstance(c, (Node, Tree))]
-                node = compounds[keys[1][i]]
-        return node
+                item = item.children[k]
 
-    def set_item_by_key(self, keys: List[List[int]], cstr: str) -> None:
+            if not ignore_comp:
+                # If no compound part is supplied, take the last compound that exists
+                if keys[1][i] is None:
+                    if item.compounds:
+                        item = item.compounds[-1]
+                # If the compound part is non-zero, take the corresponding compound
+                # Else take the item itself
+                elif keys[1][i] > 0:
+                    item = item.compounds[keys[1][i] - 1]
+
+        return item
+
+    def set_item_by_key(self, keys: List[List[int], List[int]], cstr: str) -> None:
         e = Element(cstr)
         node = self.get_item_by_key(keys)
         node.map_element(e)

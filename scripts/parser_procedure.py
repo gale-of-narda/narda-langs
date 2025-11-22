@@ -1,6 +1,6 @@
 import json
 
-from typing import Optional, Tuple, List, Dict, Iterable
+from typing import Tuple, List, Dict, Iterable
 from pathlib import Path
 
 from scripts.parser_entities import Tree, Node, Mask
@@ -176,13 +176,13 @@ class Parser:
 
     def _match_char(self, cand: str, d: int, node: Node, stances: List[int]):
         r = node.rank
-        binrank, binnum = self._get_bins(stances, 2**r - 1)
+        binrank, binnum = self._get_bins(stances[0], 2**r - 1)
 
         rev = bool(self.grules.revs[binrank][binnum])
         ret = bool(self.grules.rets[r][d])
         skip = bool(self.grules.skips[r][d])
 
-        pstances = stances[-d:] if d > 0 else []
+        pstances = stances[0][-d:] if d > 0 else []
         masks = node.get_masks(d, pstances)
         fm, sm = masks if not rev else masks[::-1]
         fm.cyclic, sm.cyclic = not ret, not ret
@@ -202,16 +202,18 @@ class Parser:
             comp_res = self._compare(cand, fm)
             if comp_res:
                 fm.pos = comp_res[0]
+                fm.rep = comp_res[1]
                 node.reset_masks(d, pstances, int(not rev))
                 return (int(rev), comp_res[1])
 
         # If unsuccessful, proceed to the second half
-        # Ensure the first half was already matched OR skipping is not restricetd
+        # Ensure the first half was already matched OR skipping is not restricted
         if fm.pos >= 0 or not skip:
             print(f"-> Comparing {cand} with second mask {sm}")
             comp_res = self._compare(cand, sm)
             if comp_res:
                 sm.pos = comp_res[0]
+                sm.rep = comp_res[1]
                 node.reset_masks(d, pstances, int(rev))
                 return (int(not rev), comp_res[1])
 
@@ -219,13 +221,14 @@ class Parser:
         return None
 
     def _process_char(self, s: str) -> List[int]:
+        tree = self.buff.tree
         stances = [[], []]
         # Iterating over the ranks of the tree
-        for r in range(len(self.buff.tree.struct)):
-            node = self.buff.tree.get_item_by_key(stances[0])
+        for r in range(len(tree.struct)):
+            node = tree.get_item_by_key(stances[0])
             # Determining the dichotomic stance of the char
-            for d in range(self.buff.tree.struct[r]):
-                matches = self._match_char(s, d, node, stances[0])
+            for d in range(tree.struct[r]):
+                matches = self._match_char(s, d, node, stances)
                 # No stance means failure, -1 means char to be skipped
                 if matches is None:
                     return [[], []]
@@ -234,6 +237,18 @@ class Parser:
                 else:
                     stances[0].append(matches[0])
                     stances[1].append(matches[1])
+                    if matches[1] > 0:
+                        ch = tree.get_item_by_key(stances[0], ignore_comp=True)
+                        lemb = self.srules.lemb[ch.num]
+                        if len(ch.compounds) < matches[1]:
+                            if len(ch.compounds) >= lemb and lemb != -1:
+                                print(
+                                    f"Failed to map '{s}' to {ch}: too many compounds"
+                                )
+                                return [[], []]
+                            else:
+                                print(f"-> Embedding a compound at N({ch.num})")
+                                tree.embed_compound(ch.num)
         return stances
 
     def _neutralize(self) -> bool:
@@ -258,22 +273,20 @@ class Parser:
         tree = self.buff.tree
         rep = self._represent(c)
 
-        m = m[0]
-
         for n in tree.nodes:
             term = self.level == 1 and n.rank == len(tree.struct)
             dkey = [int(k) for k in n.key]
             lemb = self.srules.lemb[n.num]
             perm = self.srules.tperms[int(n.key, 2)][0] if term else ""
-            if m[: len(dkey)] == dkey:
+            if m[0][: len(dkey)] == dkey:
                 if len(n.content) > lemb and lemb != -1:
                     print(f"Failed to map '{c}' to {n}: too many compounds")
                     return False
-                elif term and not any((rep in perm, c in perm)):
+                if term and not any((rep in perm, c in perm)):
                     print(f"Failed to map '{c}' to {n}: not permitted")
                     return False
                 else:
-                    tree.set_item_by_key(dkey, c)
+                    tree.set_item_by_key([dkey, m[1]], c)
         return True
 
     def _nonbinary_shift(self, maps: List[List[int]], i: int) -> None:
