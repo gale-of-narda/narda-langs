@@ -46,15 +46,12 @@
     "Words": {
         "good": [
             "hréag",
-            "ar", 
             "ra", 
-            "ár", 
+            "̃ar", 
             "rá",
             "raun",
             "ráun",
-            "ara",
-            "ára",
-            "ará",
+            "̃ara",
             "ráerar",
             "raráer",
             "ráen",
@@ -65,6 +62,8 @@
         "bad": [
             "a",
             "w",
+            "ar",
+            "ará",
             "ráaar",
             "raéan",
             "wá",

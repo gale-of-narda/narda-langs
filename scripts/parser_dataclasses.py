@@ -3,21 +3,24 @@ from dataclasses import dataclass
 
 from scripts.parser_entities import Tree
 
+
 @dataclass
 class Alphabet:
     content: Any
     separators: Any
     breakers: Any
     embedders: Any
+    equivalents: Any
 
 
 @dataclass
 class GeneralRules:
     struct: Any
-    perms: Any
-    revs: Any
     rets: Any
     skips: Any
+    splits: Any
+    perms: Any
+    revs: Any
 
 
 @dataclass

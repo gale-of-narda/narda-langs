@@ -3,6 +3,11 @@
         "C": "wlrmnzsvfȷcxhdtbpđŧgk",
         "V": "əayoeuı"
     },
+    "Equivalencies": {
+        "̄": "́əw",
+        "̃": "́",
+        "'": "ə"
+    },
     "Separators": ["", " ", "."],
     "Breakers": ["","́",""],
     "Embedders": [["<", ">"],[":", ";"], []]

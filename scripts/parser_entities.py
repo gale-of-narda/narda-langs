@@ -5,10 +5,17 @@ from collections import deque
 
 
 class Mask:
+    """
+    A string to be used as the mask for the candidate character undergoing
+    dichotomy resolution during parsing. Consists of positions to be moved
+    through with a cursor, where each position can be optional and/or
+    allow for several types of characters rather than one.
+    """
+
     def __init__(self, premask: str, cyclic: bool = True) -> None:
         self.literals, self.optionals = self._decode(premask)
         self.cyclic = cyclic
-        self.pos = -1
+        self.pos = None
         self.rep = 0
         return
 
@@ -18,11 +25,13 @@ class Mask:
         for n, lit in enumerate(lits):
             opt = "?" if self.optionals[n] else ""
             brd = f"({lit})" if len(lit) > 1 else lit
-            und = [f"̲{b}" if self.pos == n and b not in "()" else b for b in brd]
+            und = [f"{b}̲" if self.pos == n and b not in "()" else b for b in brd]
             out += opt + "".join(und)
         return f"'{out}'"
 
     def _decode(self, premask: str) -> Tuple[List[List[str]], List[bool]]:
+        # Decodes the terminal permissions defined in the general rules
+        # to transform them into masks
         optional, bracketed = False, False
         literals, optionals, group = [], [], []
 
@@ -47,14 +56,17 @@ class Mask:
 
         return literals, optionals
 
-    def move(self, step: int = 1, inplace: bool = False) -> Tuple[int, int]:
+    def move(self, step: int, inplace: bool = False) -> Tuple[int, int]:
+        """
+        Changes the position of the cursor in the mask for the given number
+        of steps forward. Loops back and increases the repetition counter
+        if the mask is cyclical.
+        """
+        pos = self.pos or 0
+            
         ln = len(self.literals)
-        if self.cyclic:
-            new_pos = (self.pos + step) % ln
-            new_rep = self.rep + (self.pos + step) // ln
-        else:
-            new_pos = min(self.pos + step, ln - 1)
-            new_rep = self.rep
+        new_pos = (pos + step) % ln
+        new_rep = self.rep + (pos + step) // ln
 
         if inplace:
             self.pos = new_pos
@@ -63,15 +75,20 @@ class Mask:
         else:
             return (new_pos, new_rep)
 
-    def match(self, rep: str, pos: int = 0) -> bool:
-        target_pos = self.move(pos)[0]
-        if isinstance(target_pos, int):
-            return any([rep in m for m in self.literals[target_pos]])
+    def match(self, rep: str, pos: int = 0, ignore_pos: bool = False) -> bool:
+        if ignore_pos:
+            return any([rep in m for pos in self.literals for m in pos])
         else:
-            return False
+            target_pos = self.move(pos)[0]
+            return any([rep in m for m in self.literals[target_pos]])
 
 
 class Element:
+    """
+    A wrapper for the given string that is understood as a language element
+    of the given level.
+    """
+
     def __init__(self, content: str, level: int = 0) -> None:
         self.content = content
         self.level = level
@@ -85,6 +102,13 @@ class Element:
 
 
 class Node:
+    """
+    A dichotomic tree node. Connected to its parent and children,
+    defined by rank, number, and key. Elements can be mapped to nodes
+    either directly as content or as a compound or complex elements
+    (each type of mapped element is stored separately).
+    """
+
     def __init__(self, rank: int = 0) -> None:
         self.parent: Node | None = None
         self.rank = rank
@@ -107,6 +131,9 @@ class Node:
         return repr(self)
 
     def set_key(self, struct: List[int]):
+        """
+        Computes and saves the key of the node in a binary format.
+        """
         layer = 1
         layers = [1] + [(layer := layer * 2**x) for x in struct]
         d = self.num - sum(layers[: self.rank])
@@ -114,7 +141,12 @@ class Node:
         self.key = key if self.num > 0 else str()
         return
 
-    def get_masks(self, d: int = 0, stances: List[int] = []) -> List[Mask]:
+    def get_masks(self, d: int = 0, stances: Optional[List[int]] = None) -> List[Mask]:
+        """
+        Retrieves the masks applicable to the given stances and dimension.
+        """
+        if stances is None:
+            stances = []
         if not self.children or d < len(stances):
             return self.masks
         else:
@@ -122,11 +154,6 @@ class Node:
             for s in stances:
                 m = m[s]
             return m
-
-    def reset_masks(self, d: int, pstances: List[int], side: int) -> None:
-        masks = self.get_masks(d, pstances)
-        masks[side].pos = -1
-        return
 
     def map_element(self, e: Element) -> None:
         if isinstance(e, Element):
@@ -136,6 +163,10 @@ class Node:
 
 
 class Tree:
+    """
+    A dichotomic tree defined by the provided structure. Keeps its nodes inside.
+    """
+
     def __init__(self, struct: List[int]) -> None:
         self.struct = struct
         self.root = Node()
@@ -152,6 +183,8 @@ class Tree:
         return st
 
     def _populate(self, node: Node, i: int):
+        # Realizes the defined structure by creating the appropriate number of nodes
+        # and setting the parent-child connections between them.
         r = node.rank
         st = [0] + self.struct
         node.num = i
@@ -166,7 +199,8 @@ class Tree:
                 self.nodes.append(n)
         return
 
-    def _draw(self, node: Node, depth: int = 0, header: str = "└", top = False) -> str:
+    def _draw(self, node: Node, depth: int = 0, header: str = "└", top=False) -> str:
+        # Draws the structure of the tree to be printed.
         anc = node.parent
         ancs_last = []
         while anc is not None:
@@ -196,6 +230,8 @@ class Tree:
         return st
 
     def _get_subtree(self, target: Optional[int]) -> Tree:
+        # Creates a structural copy of the tree and returns either that copy
+        # or its node of the given number
         struct = self.struct
         subtree = Tree(struct)
         subtree.set_permissions(self.perms)
@@ -205,6 +241,10 @@ class Tree:
             return subtree.nodes[target]
 
     def traverse(self, subroot: Node, fun: Callable) -> Optional[Any]:
+        """
+        Applies the given function to the nodes of the subtree
+        that originates from the given subroot.
+        """
         queue = deque([subroot])
         i = 0
         while queue:
@@ -218,7 +258,10 @@ class Tree:
         return
 
     def set_permissions(self, perms: List[List[str]]) -> None:
-        # Making the list of partitions of the node's children's permissions
+        """
+        Makes the list of partitions of the node's children's permissions.
+        """
+
         # Element m holds the masks for m-th dichotomy at the node
         # If m > 1, the masks come in a binary tree list nagivated with stances
         def split(perms, d):
@@ -246,18 +289,32 @@ class Tree:
         return
 
     def embed_compound(self, tnum: int) -> None:
+        """
+        Adds a copy of the subtree originating from the node of the given number
+        to the mapped compounds list of the node.
+        """
         target = self.nodes[tnum]
         new_node = self._get_subtree(target.num)
         target.compounds.append(new_node)
         return
 
     def embed_complex(self, tnum: int) -> None:
+        """
+        Adds a copy of the subtree originating from the root of the tree
+        to the mapped complexes list of the node.
+        """
         target = self.nodes[tnum]
         new_tree = self._get_subtree()
         target.complexes.append(new_tree)
         return
 
     def get_item_by_key(self, keys: List[List[int]], ignore_comp: bool = False):
+        """
+        Returns the node defined by the keys. The keys consist of the target node's
+        own key and the list of equivalent length that keeps track of compound
+        numbers.
+        """
+
         def fix_key(key: List) -> List:
             if not key:
                 return key
@@ -292,14 +349,18 @@ class Tree:
                 if keys[1][i] is None:
                     if item.compounds:
                         item = item.compounds[-1]
-                # If the compound part is non-zero, take the corresponding compound
-                # Else take the item itself
+                # If the compound part is non-zero, take the corresponding compound;
+                # else take the item itself
                 elif keys[1][i] > 0:
                     item = item.compounds[keys[1][i] - 1]
 
         return item
 
-    def set_item_by_key(self, keys: List[List[int], List[int]], cstr: str) -> None:
+    def set_item_by_key(self, keys: List[List[int]], cstr: str) -> None:
+        """
+        Maps the provided string as a content element to the node
+        retrieved by the provided keys.
+        """
         e = Element(cstr)
         node = self.get_item_by_key(keys)
         node.map_element(e)
