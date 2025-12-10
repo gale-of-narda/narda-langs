@@ -3,6 +3,7 @@ import math
 from typing import Tuple, List, Callable, Optional, Any
 from collections import deque
 
+type Stance = (List[int], List[int])
 
 class Mask:
     """
@@ -12,9 +13,13 @@ class Mask:
     allow for several types of characters rather than one.
     """
 
-    def __init__(self, premask: str, cyclic: bool = True) -> None:
+    def __init__(self, premask: str, rank: int = 0, num: int = 0) -> None:
+        self.rank, self.num = rank, num
+        self.key = self._compute_key()
         self.literals, self.optionals = self._decode(premask)
-        self.cyclic = cyclic
+        self.rev = None
+        self.lemb = None
+        self.demb = None
         self.pos = None
         self.rep = 0
         return
@@ -55,6 +60,10 @@ class Mask:
                         group = []
 
         return literals, optionals
+    
+    def _compute_key(self) -> List[int]:
+        key = f"{self.num:b}".rjust(self.rank, "0")
+        return key
 
     def move(self, step: int, inplace: bool = False) -> Tuple[int, int]:
         """
@@ -307,61 +316,21 @@ class Tree:
         new_tree = self._get_subtree()
         target.complexes.append(new_tree)
         return
+        
+    def get_node(self, key: Stance, get_all: bool = True) -> List[Node]:
+        nodes = []
+        for node in self.nodes:
+            node_key = [int(k) for k in node.key]
+            if node_key == key[0]:
+                nodes.append(node)
+            elif get_all and node_key == key[0][:len(node_key)]:
+                nodes.append(node)
 
-    def get_item_by_key(self, keys: List[List[int]], ignore_comp: bool = False):
-        """
-        Returns the node defined by the keys. The keys consist of the target node's
-        own key and the list of equivalent length that keeps track of compound
-        numbers.
-        """
+        return nodes if get_all else nodes[0]
 
-        def fix_key(key: List) -> List:
-            if not key:
-                return key
-            i, ks = 0, []
-            marks = [[True] * s if s > 1 else False for s in self.struct]
-            for m in marks:
-                if i < len(key):
-                    if isinstance(m, list):
-                        ks.append(key[i : i + len(m)])
-                        i += len(m)
-                    else:
-                        ks.append(key[i])
-                        i += 1
-            return ks
-
-        if not keys or not isinstance(keys[0], List):
-            keys = [keys, [None] * len(keys)]
-
-        item = self.root
-        keys[0] = fix_key(keys[0])
-
-        for i in range(len(keys[0])):
-            k = keys[0][i]
-            if isinstance(k, list):
-                num = int("".join(str(n) for n in k) or "0", 2)
-                item = item.children[num]
-            else:
-                item = item.children[k]
-
-            if not ignore_comp:
-                # If no compound part is supplied, take the last compound that exists
-                if keys[1][i] is None:
-                    if item.compounds:
-                        item = item.compounds[-1]
-                # If the compound part is non-zero, take the corresponding compound;
-                # else take the item itself
-                elif keys[1][i] > 0:
-                    item = item.compounds[keys[1][i] - 1]
-
-        return item
-
-    def set_item_by_key(self, keys: List[List[int]], cstr: str) -> None:
-        """
-        Maps the provided string as a content element to the node
-        retrieved by the provided keys.
-        """
-        e = Element(cstr)
-        node = self.get_item_by_key(keys)
-        node.map_element(e)
+    def set_element(self, key: Stance, char: str, set_all: bool = True) -> None:
+        e = Element(char)
+        nodes = self.get_node(key, set_all)
+        for node in nodes:
+            node.map_element(e)
         return
