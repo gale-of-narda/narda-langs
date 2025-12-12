@@ -170,7 +170,7 @@ class Masker:
             for pair in pairs:
                 if pair[0].key[:-1] == pair_stance and pair[1].key[:-1] == pair_stance:
                     return pair if get_pair else pair[stance[0][-1]]
-            raise Exception(f"Couldn't find masks with stance {stance}")
+            raise Exception(f"Couldn't find masks with stance {stance[0]}")
 
     def reset_masks(self, target: Mask) -> None:
         masks = [m for r in self.masks for mp in r for m in mp]
@@ -235,7 +235,7 @@ class Parser:
     def parse(self, input_string: str) -> bool:
         # Parses the input string
         self.buffer.tree = Tree(self.grules.struct)
-        
+
         parsed_string = self.prepare(input_string)
         self.buffer.parsed_string = parsed_string
         print(f"Parsing '{input_string}' as '{parsed_string}'")
@@ -287,9 +287,19 @@ class Parser:
 
     def apply(self) -> None:
         # Maps the chars to the tree with the obtained stances
-        for i, stance in enumerate(self.buffer.mapping.stances):
-            char = self.buffer.mapping.chars[i]
-            self.buffer.tree.set_element(stance, char, set_all=True)
+        # Embeds compounds as it meets their addresses in the stances
+        maps, tree = self.buffer.mapping, self.buffer.tree
+        finals = [r + 1 == s for s in self.grules.struct for r in range(s)]
+        for i, stance in enumerate(maps.stances):
+            char = maps.chars[i]
+            for j, st in enumerate(stance[0]):
+                if finals[j]:
+                    base_stance = tuple([st[: j + 1] for st in stance])
+                    base_node = tree.get_node(base_stance, ignore_comps=True)
+                    if stance[1][j] > len(base_node.compounds):
+                        tree.embed_compound(base_node.num)
+                        print(f"Embedded a compound at node {base_node.num}")
+            tree.set_element(stance, char, set_all=True)
         return
 
     def produce_mapping(self, prep_string: str) -> Mapping | bool:

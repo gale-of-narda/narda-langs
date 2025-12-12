@@ -3,7 +3,6 @@ from collections import deque
 
 type Stance = (List[int], List[int])
 
-
 class Mask:
     """
     A string to be used as the mask for the candidate character undergoing
@@ -59,7 +58,7 @@ class Mask:
                         group = []
 
         return literals, optionals
-
+    
     def _compute_key(self) -> List[int]:
         key = f"{self.num:b}".rjust(self.rank, "0")
         return key
@@ -71,7 +70,7 @@ class Mask:
         if the mask is cyclical.
         """
         pos = self.pos or 0
-
+            
         ln = len(self.literals)
         new_pos = (pos + step) % ln
         new_rep = self.rep + (pos + step) // ln
@@ -121,11 +120,15 @@ class Node:
         self.parent: Node | None = None
         self.rank = rank
         self.num = 0
+        self.ranknum = 0
+        self.sibnum = 0
         self.children = []
         self.content = []
+        self.masks = []
         self.compounds = []
         self.complexes = []
         self.key = str()
+        self.perm = str()
 
     def __repr__(self) -> str:
         content = [s for s in self.content if isinstance(s, Element)]
@@ -224,6 +227,7 @@ class Tree:
         # or its node of the given number
         struct = self.struct
         subtree = Tree(struct)
+        subtree.set_permissions(self.perms)
         if target is None:
             return subtree
         else:
@@ -246,6 +250,38 @@ class Tree:
             i += 1
         return
 
+
+    def set_permissions(self, perms: List[List[str]]) -> None:
+        """
+        Makes the list of partitions of the node's children's permissions.
+        """
+
+        # Element m holds the masks for m-th dichotomy at the node
+        # If m > 1, the masks come in a binary tree list nagivated with stances
+        def split(perms, d):
+            mid = len(perms) // 2
+            if d == 0:
+                return Mask("".join(perms))
+            else:
+                return [split(perms[:mid], d - 1), split(perms[mid:], d - 1)]
+
+        # Save and set the permissions first
+        self.perms = perms
+        for n in self.nodes:
+            n.perm = perms[n.rank][n.ranknum]
+
+        # Then compute the masks used in matching at non-terminal nodes
+        for n in self.nodes:
+            if n.children:
+                length = int(math.log(len(n.children), 2))
+                masks = []
+                for d in range(length):
+                    mask = split([ch.perm for ch in n.children], d + 1)
+                    masks.append(mask)
+                n.masks = masks
+
+        return
+
     def embed_compound(self, tnum: int) -> None:
         """
         Adds a copy of the subtree originating from the node of the given number
@@ -265,30 +301,21 @@ class Tree:
         new_tree = self._get_subtree()
         target.complexes.append(new_tree)
         return
+        
+    def get_node(self, key: Stance, get_all: bool = True) -> List[Node]:
+        nodes = []
+        for node in self.nodes:
+            node_key = [int(k) for k in node.key]
+            if node_key == key[0]:
+                nodes.append(node)
+            elif get_all and node_key == key[0][:len(node_key)]:
+                nodes.append(node)
 
-    def get_node(self, stance: Stance, ignore_comps: bool = False) -> Node:
-        cursor = 0
-        node = self.root
-        pos, comps = "".join([str(s) for s in stance[0]]), stance[1]
-        struct_sums = [sum(self.struct[: i + 1]) for i, s in enumerate(self.struct)]
-        struct_to_loop = [s for s in struct_sums if s <= len(pos)]
-        for s in struct_to_loop:
-            node = node.children[int(pos[cursor : cursor + s], 2)]
-            comp = comps[cursor : cursor + s][-1]
-            if not ignore_comps:
-                if comp > 0:
-                    node = node.compounds[comp - 1]
-            cursor += s
-        return node
+        return nodes if get_all else nodes[0]
 
-    def set_element(self, stance: Stance, char: str, set_all: bool = True) -> None:
+    def set_element(self, key: Stance, char: str, set_all: bool = True) -> None:
         e = Element(char)
-        node = self.get_node(stance)
-        if set_all:
-            cursor = 0
-            struct = [0] + self.struct[: len(stance[0])]
-            for s in struct[: len(stance[0])]:
-                node = self.get_node(tuple([st[: cursor + s] for st in stance]))
-                node.map_element(e)
-                cursor += s
+        nodes = self.get_node(key, set_all)
+        for node in nodes:
+            node.map_element(e)
         return

@@ -7,12 +7,13 @@ app = marimo.App()
 @app.cell
 def _():
     from scripts.parser_procedure import Parser
+    from scripts.parser_entities import Tree
     return (Parser,)
 
 
 @app.cell
 def _(Parser):
-    input_string = 'rō'
+    input_string = 'kusoréagamın'
     parser = Parser(level=1)
     res = parser.parse(input_string)
     print(res)
@@ -21,15 +22,6 @@ def _(Parser):
 
 @app.cell
 def _():
-    return
-
-
-@app.cell
-def _():
-    #for rank in parser.masker.masks:
-    #    for mask_pair in rank:
-    #        for mask in mask_pair:
-    #            print(mask, mask.rev)
     return
 
 
