@@ -92,8 +92,8 @@ class Masker:
 
     def _unravel_term_params(self) -> None:
         # Creates perms and revs per each node based on terminal node parameters
-        perms = self._mult(self.term_perms)
-        revs = self._mult(self.term_revs)
+        perms = self.term_perms
+        revs = self.term_revs
         self.perms, self.revs = [perms], [revs]
 
         while len(perms) > 1:
@@ -133,19 +133,6 @@ class Masker:
 
         return
 
-    def _mult(self, cperms: List[str]) -> List[str]:
-        # Multiplies the perms by chunks according to struct
-        chunks = cperms
-        for i in range(len(self.struct)):
-            size = 2 ** (len(self.struct) - i)
-            chunks = [
-                chunks[j : j + size] * self.struct[::-1][i]
-                for j in range(0, len(chunks), size)
-            ]
-            chunks = [b for a in chunks for b in a]
-
-        return chunks
-
     def _split(self, perms: List[str], revs: List[int]) -> List[List[str]]:
         # Splits the perms into n chunks, reversing the order according to revs
         split_perms, split_revs = [], []
@@ -165,11 +152,15 @@ class Masker:
         if len(stance[0]) == 0:
             return self.masks[0][0] if get_pair else None
         else:
-            pair_stance = "".join(str(s) for s in stance[0])
+            key = "".join(str(s) for s in stance[0])
             pairs = [mp for r in self.masks for mp in r]
             for pair in pairs:
-                if pair[0].key[:-1] == pair_stance and pair[1].key[:-1] == pair_stance:
-                    return pair if get_pair else pair[stance[0][-1]]
+                if get_pair:
+                    if pair[0].key[:-1] == key and pair[1].key[:-1] == key:
+                        return pair
+                else:
+                    if pair[0].key[:-1] == key[:-1] and pair[1].key[:-1] == key[:-1]:
+                        return pair[stance[0][-1]]
             raise Exception(f"Couldn't find masks with stance {stance[0]}")
 
     def reset_masks(self, target: Mask) -> None:
@@ -192,23 +183,7 @@ class Parser:
         self.alphabet = self.loader.load_alphabet(self.level)
         self.grules = self.loader.load_grules(self.level)
         self.srules = self.loader.load_srules(self.level)
-        self.masker = Masker(self.grules)
         return
-
-    def represent(self, ch: str) -> str:
-        # Repalces the input character with its alphabetic representation
-        if self.level == 0:
-            return ch.upper()
-        else:
-            content = self.alphabet.content.items()
-            breakers = list(self.alphabet.breakers)
-            embedders = list(self.alphabet.embedders)
-            if any(ch == nc for nc in breakers + embedders):
-                return ch
-            for key, val in content:
-                if ch in val:
-                    return key
-            raise ValueError(f"No representation for '{ch}' on level {self.level}")
 
     def prepare(self, st: str) -> str:
         # Removes non-alphabetic characters and makes the replacements
@@ -232,75 +207,47 @@ class Parser:
 
         return stripped_string.lower()
 
+    def represent(self, ch: str) -> str:
+        # Repalces the input character with its alphabetic representation
+        if self.level == 0:
+            return ch.upper()
+        else:
+            content = self.alphabet.content.items()
+            breakers = list(self.alphabet.breakers)
+            embedders = list(self.alphabet.embedders)
+            if any(ch == nc for nc in breakers + embedders):
+                return ch
+            for key, val in content:
+                if ch in val:
+                    return key
+            raise ValueError(f"No representation for '{ch}' on level {self.level}")
+
     def parse(self, input_string: str) -> bool:
         # Parses the input string
         self.buffer.tree = Tree(self.grules.struct)
+        self.masker = Masker(self.grules)
 
         parsed_string = self.prepare(input_string)
         self.buffer.parsed_string = parsed_string
         print(f"Parsing '{input_string}' as '{parsed_string}'")
 
-        mapping = self.produce_mapping(parsed_string)
-        if mapping:
-            self.shift_nonbinary_mappings(mapping)
-            self.buffer.mapping = mapping
-            self.apply()
-            print(self.buffer.tree)
-            return True
+        # Apply general rules to produce the mapping
+        self.buffer.mapping = self.produce_mapping(parsed_string)
+        if self.buffer.mapping:
+            self.shift_nonbinary_mappings()
+            self.fill_empty_terminals()
+            # Apply special rules to validate the mapping
+            if self.validate_mapping():
+                # Commit the mapping to the tree
+                self.apply()
+                print(self.buffer.tree)
+                return True
+            else:
+                print("Couldn't validate the mapping")
+                return False
         else:
+            print("Couldn't produce the mapping")
             return False
-
-    def shift_nonbinary_mappings(self, mapping: Mapping) -> None:
-        # For non-binary dichotomies, shift the mappings towards the right
-        # to fill the vacant place
-
-        def check_antagonist(stance: Stance, lemb: int) -> Stance | None:
-            new_stance = None
-            stances_to_check = [s[0] for s in mapping.stances]
-            shifted_stance = [p for p in stance[0]]
-            shifted_stance[d] = 1 - shifted_stance[d]
-
-            matches = sum([1 for st in stances_to_check if st == shifted_stance])
-            slots_left = 1 if lemb == -1 else 1 + lemb - matches
-            shifted_emb = [p for p in stance[1]]
-            shifted_emb[d] = matches
-            if slots_left > 0:
-                new_stance = (shifted_stance, shifted_emb)
-
-            return new_stance
-
-        nbs = [r != 0 for s in self.grules.struct for r in range(s)]
-        for d, nb in enumerate(nbs):
-            if not nb:
-                continue
-            for mask_pair in self.masker.masks[d]:
-                rev = bool(min(mask_pair[0].rev, mask_pair[1].rev))
-                side = 0 if not rev else 1
-                key = [int(p) for p in mask_pair[side].key]
-                for i, stance in enumerate(mapping.stances):
-                    if stance[0][: len(key)] == key:
-                        new_stance = check_antagonist(stance, mask_pair[1 - side].lemb)
-                        if new_stance:
-                            print(f"-> Shifting {stance} to {new_stance}")
-                            mapping.stances[i] = new_stance
-        return
-
-    def apply(self) -> None:
-        # Maps the chars to the tree with the obtained stances
-        # Embeds compounds as it meets their addresses in the stances
-        maps, tree = self.buffer.mapping, self.buffer.tree
-        finals = [r + 1 == s for s in self.grules.struct for r in range(s)]
-        for i, stance in enumerate(maps.stances):
-            char = maps.chars[i]
-            for j, st in enumerate(stance[0]):
-                if finals[j]:
-                    base_stance = tuple([st[: j + 1] for st in stance])
-                    base_node = tree.get_node(base_stance, ignore_comps=True)
-                    if stance[1][j] > len(base_node.compounds):
-                        tree.embed_compound(base_node.num)
-                        print(f"Embedded a compound at node {base_node.num}")
-            tree.set_element(stance, char, set_all=True)
-        return
 
     def produce_mapping(self, prep_string: str) -> Mapping | bool:
         # Produces the dichotomic stances for each character in the string
@@ -321,6 +268,107 @@ class Parser:
         mapping = Mapping(chars, stances)
 
         return mapping
+
+    def shift_nonbinary_mappings(self) -> None:
+        # For non-binary dichotomies, shift the mappings towards the right
+        # to fill the vacant place
+        nbs = [r != 0 for s in self.grules.struct for r in range(s)]
+        stances = self.buffer.mapping.stances
+        for d, nb in enumerate(nbs):
+            if not nb:
+                continue
+            for mask_pair in self.masker.masks[d]:
+                rev = bool(min(mask_pair[0].rev, mask_pair[1].rev))
+                side = 0 if not rev else 1
+                key = [int(p) for p in mask_pair[side].key]
+                for i in range(len(stances))[:: -1 if not rev else 1]:
+                    stance = stances[i]
+                    if stance[0][: len(key)] == key:
+                        op_stance, cnt, slots = self.count_slots(stance, d)
+                        if slots > 0 and (
+                            i == len(stances) - 1
+                            # Cannot shift past the next mapping
+                            or int("".join([str(s) for s in op_stance[0]]), 2)
+                            <= int("".join([str(s) for s in stances[i + 1][0]]), 2)
+                        ):
+                            print(f"-> Shifting {stance} to {op_stance}")
+                            stances[i] = op_stance
+                        # Can only shift continuous arrays of mappings
+                        else:
+                            break
+        return
+
+    def fill_empty_terminals(self) -> None:
+        # Adds neutral chars to mirror those with no siblings at terminal nodes
+        stances = self.buffer.mapping.stances
+        chars = self.buffer.mapping.chars
+        for i, stance in enumerate(stances):
+            op_stance, cnt, _ = self.count_slots(stance)
+            key = "".join([str(s) for s in op_stance[0]])
+            mask = self.masker.get_masks(tuple([op_stance[0][:-1], []]))
+            if cnt == 0:
+                key = "".join([str(s) for s in op_stance[0]])
+                neut_type = self.srules.tneuts[int(key, 2)][0]
+                neut_char = self.alphabet.content[neut_type][0]
+                slot = op_stance[0][-1] if not mask.rev else 1 - op_stance[0][-1]
+                # Insert it to the right or to the left of the original
+                # depending on rev and whether it is the right or left sibling
+                stances.insert(i + slot, op_stance)
+                chars.insert(i + slot, neut_char)
+        return
+
+    def count_slots(self, stance: Stance, d: int = -1):
+        # Checks how many vacant terminal slots exist opposite to the given one
+        # along the given dichotomy
+        cnt = 0
+        op_stance = tuple([[s for s in pt] for pt in stance])
+        op_stance[0][d], op_stance[1][d] = 1 - op_stance[0][d], 0
+        mask = self.masker.get_masks(op_stance)
+
+        for st in self.buffer.mapping.stances:
+            if st[0] == op_stance[0] and st[1][:-1] == op_stance[1][:-1]:
+                cnt += 1
+
+        if mask.lemb == -1:
+            slots = 1
+        else:
+            slots = 1 + mask.lemb - cnt
+
+        return op_stance, cnt, slots
+
+    def validate_mapping(self) -> bool:
+        # Check that every mapping complies with terminal permissions
+        if self.level == 0:
+            return True
+
+        for i, stance in enumerate(self.buffer.mapping.stances):
+            char = self.buffer.mapping.chars[i]
+            rep = self.represent(char)
+            key = "".join([str(s) for s in stance[0]])
+            perm = self.srules.tperms[int(key, 2)][0]
+            if char not in perm and rep not in perm:
+                print(f"No permission for {char}/{rep} at {stance[0]}")
+                return False
+
+        return True
+
+    def apply(self) -> None:
+        # Maps the chars to the tree with the obtained stances
+        # Embeds compounds as it meets their addresses in the stances
+        maps, tree = self.buffer.mapping, self.buffer.tree
+        finals = [r + 1 == s for s in self.grules.struct for r in range(s)]
+        for i, stance in enumerate(maps.stances):
+            char = maps.chars[i]
+            for j, st in enumerate(stance[0]):
+                if finals[j]:
+                    base_stance = tuple([st[: j + 1] for st in stance])
+                    base_stance[1][-1] = 0
+                    base_node = tree.get_node(base_stance)
+                    if stance[1][j] > len(base_node.compounds):
+                        tree.embed_compound(base_node)
+                        print(f"Embedded a compound at node {base_node.num}")
+            tree.set_element(stance, char, set_all=True)
+        return
 
     def determine_char_stance(self, char: str) -> Stance | bool:
         # Cycle through the ranks and determine the positions of the char for each
@@ -351,34 +399,45 @@ class Parser:
         if rank < 2:
             rev = 0
 
-        first_mask, second_mask = mask_pair[::-1] if rev else mask_pair
+        # Which mask is the first/second depends on rev
+        masks = mask_pair[::-1] if rev else mask_pair
+        # Conditions of fit for the 1st and 2nd masks
+        conds = [
+            any([masks[1].pos is None, not ret]),
+            any([masks[0].pos is not None, masks[1].pos is not None, not skip]),
+        ]
+        # Results of fit for the masks: tuple(pos, rep)
+        comps = [
+            self.compare_with_mask(cand, masks[0], split),
+            self.compare_with_mask(cand, masks[1], split),
+        ]
 
-        # Parsing the breaker for a split-set dichotomy and moving to the second mask
+        num_strings = ["first", "second"]
+        revs = [int(rev), int(not rev)]
+
+        # Skipping the breaker
         if split and cand in breakers:
             print("Ignoring the breaker")
-            first_mask.pos, second_mask.pos = None, 0
+            masks[0].pos, masks[1].pos = None, 0
             return True
+        # If both masks are fitting, choose the one with lesser rep
+        elif (conds[0] and comps[0]) and (conds[1] and comps[1]):
+            fit = 0 if comps[0][1] <= comps[1][1] else 1
+        # First mask fitting (the second one wasn't fit OR ret is not forbidden)
+        elif conds[0] and comps[0]:
+            fit = 0
+        # Second mask fitting (either mask wasn't fit OR skip is not forbidden)
+        elif conds[1] and comps[1]:
+            fit = 1
+        # No fit
+        else:
+            return False
 
-        # Comparing with the first mask
-        # Ensure that the second mask wasn't yet fit OR the return is not restricted
-        if second_mask.pos is None or not ret:
-            print(f"-> Comparing {cand} with first mask {first_mask}")
-            comparison = self.compare_with_mask(cand, first_mask, split)
-            if comparison:
-                self.set_position(first_mask, second_mask, comparison)
-                return (int(rev), first_mask.rep)
+        string = f"-> Fitting {cand} to the {num_strings[fit]} mask {masks[fit]}"
+        self.set_position(masks[fit], masks[1 - fit], comps[fit])
+        print(f"{string} → {masks[fit]}")
 
-        # Comparing with the second mask
-        # Ensure that either mask was already fit OR the skip is not restricted
-        if first_mask.pos is not None or second_mask.pos is not None or not skip:
-            print(f"-> Comparing {cand} with second mask {second_mask}")
-            comparison = self.compare_with_mask(cand, second_mask, split)
-            if comparison:
-                self.set_position(second_mask, first_mask, comparison)
-                return (int(not rev), second_mask.rep)
-
-        # If neither mask accepts the candidate
-        return False
+        return (revs[fit], masks[fit].rep)
 
     def compare_with_mask(self, cand: str, mask: Mask, split: bool):
         # Check if the representation of the candidate char fits the given mask
@@ -401,12 +460,12 @@ class Parser:
                 # Next char, if the mask is singular or was already fit
                 incr == 1 and (singular or mask.pos is not None),
                 # Following chars, unless a non-optional char is getting skipped
-                mask.optionals[mask.move(incr)[0]],
+                incr > 0 and not singular and mask.optionals[mask.move(incr - 1)[0]],
             ]
         ):
             if mask.match(rep, incr):
                 mov = mask.move(incr)
-                # Check that we aren't adding compounds beyond the restriction for the mask
+                # Check that we aren't adding compounds beyond the restriction
                 if mov[1] <= (mask.lemb or 0) or mask.lemb == -1:
                     return mov
             incr += 1
@@ -420,5 +479,5 @@ class Parser:
         if target_mask.rep < comp[1]:
             self.masker.reset_masks(target_mask)
         target_mask.pos, target_mask.rep = comp
-        other_mask.pos = None
+        self.masker.reset_masks(other_mask)
         return

@@ -246,24 +246,22 @@ class Tree:
             i += 1
         return
 
-    def embed_compound(self, tnum: int) -> None:
+    def embed_compound(self, node: Node) -> None:
         """
         Adds a copy of the subtree originating from the node of the given number
         to the mapped compounds list of the node.
         """
-        target = self.nodes[tnum]
-        new_node = self._get_subtree(target.num)
-        target.compounds.append(new_node)
+        new_node = self._get_subtree(node.num)
+        node.compounds.append(new_node)
         return
 
-    def embed_complex(self, tnum: int) -> None:
+    def embed_complex(self, node: Node) -> None:
         """
         Adds a copy of the subtree originating from the root of the tree
         to the mapped complexes list of the node.
         """
-        target = self.nodes[tnum]
         new_tree = self._get_subtree()
-        target.complexes.append(new_tree)
+        node.complexes.append(new_tree)
         return
 
     def get_node(self, stance: Stance, ignore_comps: bool = False) -> Node:
@@ -287,7 +285,7 @@ class Tree:
         if set_all:
             cursor = 0
             struct = [0] + self.struct[: len(stance[0])]
-            for s in struct[: len(stance[0])]:
+            for s in struct[: len(stance[0]) + 1]:
                 node = self.get_node(tuple([st[: cursor + s] for st in stance]))
                 node.map_element(e)
                 cursor += s

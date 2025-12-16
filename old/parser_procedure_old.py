@@ -131,7 +131,19 @@ class Masker:
         self.perms = agg_struct
 
         return
+        
+    def _mult(self, cperms: List[str]) -> List[str]:
+        # Multiplies the perms by chunks according to struct
+        chunks = cperms
+        for i in range(len(self.struct)):
+            size = 2 ** (len(self.struct) - i)
+            chunks = [
+                chunks[j : j + size] * self.struct[::-1][i]
+                for j in range(0, len(chunks), size)
+            ]
+            chunks = [b for a in chunks for b in a]
 
+        return chunks
 
 class Parser:
     """
@@ -448,3 +460,39 @@ class Parser:
             print("Could not produce a mapping")
 
         return False
+
+    def shift_nonbinary_mappings(self) -> None:
+        # For non-binary dichotomies, shift the mappings towards the right
+        # to fill the vacant place
+
+        def check_antagonist(stance, lemb: int, d: int):
+            new_stance = None
+            stances_to_check = [s[0] for s in self.buffer.mapping.stances]
+            shifted_stance = [p for p in stance[0]]
+            shifted_stance[d] = 1 - shifted_stance[d]
+
+            matches = sum([1 for st in stances_to_check if st == shifted_stance])
+            slots_left = 1 if lemb == -1 else 1 + lemb - matches
+            shifted_emb = [p for p in stance[1]]
+            shifted_emb[d] = matches
+            if slots_left > 0:
+                new_stance = (shifted_stance, shifted_emb)
+
+            return new_stance
+
+        nbs = [r != 0 for s in self.grules.struct for r in range(s)]
+        for d, nb in enumerate(nbs):
+            if not nb:
+                continue
+            for mask_pair in self.masker.masks[d]:
+                rev = bool(min(mask_pair[0].rev, mask_pair[1].rev))
+                side = 0 if not rev else 1
+                key = [int(p) for p in mask_pair[side].key]
+                for i, stance in enumerate(self.buffer.mapping.stances):
+                    if stance[0][: len(key)] == key:
+                        lemb = mask_pair[1 - side].lemb
+                        new_stance = check_antagonist(stance, lemb, d)
+                        if new_stance:
+                            print(f"-> Shifting {stance} to {new_stance}")
+                            self.buffer.mapping.stances[i] = new_stance
+        return
