@@ -45,6 +45,9 @@
     },
     "Words": {
         "good": [
+            "w",
+            "wá",
+            "́aw",
             "hréag",
             "ra", 
             "̃ar",
@@ -60,15 +63,18 @@
             "ráen",
             "nna",
             "réald",
-            "raráarar"
+            "raráarar",
+            "doréem",
+            "doremı́ıfa",
+            "doremı́ıfasol"
         ],
         "bad": [
             "a",
-            "w",
+            "npd",
+            "aea",
             "ráaar",
             "raéan",
-            "wá",
-            "áw",
+            "réemıfasol",
             "akakakak",
             "kakakaka"
         ]

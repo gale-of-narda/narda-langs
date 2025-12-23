@@ -13,9 +13,22 @@ def _():
 
 @app.cell
 def _(Parser):
-    input_string = 'réagus'
+    #rémı
+    #raéan
+    #hréag
+    #mı́ıfasol
+    input_string = 'w'
     parser = Parser(level=1)
     res = parser.parse(input_string)
+    return
+
+
+@app.cell
+def _():
+    #for rank in parser.masker.masks:
+    #    for mask_pair in rank:
+    #        for mask in mask_pair:
+    #            print(mask, mask.rev)
     return
 
 

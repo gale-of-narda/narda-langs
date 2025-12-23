@@ -21,7 +21,7 @@
     ],
     "Permissions": [
         ["(AO)", "?E", "(YU)", "?I"],
-        ["?C", "V", "C", "V", "C", "V", "C", "?V"]
+        ["?C", "V", "C", "V", "C", "?V", "C", "V"]
     ],
     "Compound lengths": [
         [[0],

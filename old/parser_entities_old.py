@@ -1,5 +1,16 @@
 from typing import Tuple, List, Callable, Optional, Any
 from collections import deque
+import math
+
+
+revs = {   "Reversals": [
+    [[0],
+        [0, 0],
+        [0, 0, 0, 0]],
+    [[0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0, 1, 1, 1, 1]]
+]}
 
 type Stance = (List[int], List[int])
 

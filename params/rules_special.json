@@ -2,21 +2,21 @@
     "Terminal permissions": [
         ["C"],
         ["V"], 
-        ["lrmnzsvfȷcxhdtbpđŧgk"], 
+        ["wlrmnzsvfȷcxhdtbpđŧgk"], 
         ["V"], 
-        ["lrmnzsvfȷcxhdtbpđŧgk"], 
+        ["wlrmnzsvfȷcxhdtbpđŧgk"], 
         ["V"], 
         ["C"], 
         ["V"]
     ],
     "Terminal neutrals": [
-        ["C"],
-        ["V"], 
-        ["C"], 
-        ["V"], 
-        ["C"], 
-        ["V"], 
-        ["C"], 
-        ["V"]
+        ["w"],
+        ["ə"], 
+        ["w"], 
+        ["ə"], 
+        ["w"], 
+        ["ə"], 
+        ["w"], 
+        ["ə"]
     ]
 }

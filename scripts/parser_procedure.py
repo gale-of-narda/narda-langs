@@ -1,7 +1,8 @@
 import json
 
-from typing import Tuple, List
+from typing import Dict, Tuple, List
 from pathlib import Path
+from math import log
 
 from scripts.parser_entities import Tree, Mask
 from scripts.parser_dataclasses import Alphabet, GeneralRules, SpecialRules
@@ -96,8 +97,8 @@ class Masker:
         revs = self.term_revs
         self.perms, self.revs = [perms], [revs]
 
-        while len(perms) > 1:
-            perms, revs = self._split(perms, revs)
+        for r in range(int(log(len(perms)))):
+            perms, revs = self._split(perms, revs, r)
             self.perms.append(perms)
             self.revs.append(revs)
 
@@ -133,11 +134,11 @@ class Masker:
 
         return
 
-    def _split(self, perms: List[str], revs: List[int]) -> List[List[str]]:
+    def _split(self, perms: List[str], revs: List[int], r: int) -> List[List[str]]:
         # Splits the perms into n chunks, reversing the order according to revs
         split_perms, split_revs = [], []
         for i in range(0, len(perms), 2):
-            rev = min(revs[i : i + 2])
+            rev = min(revs[i : i + 2]) if r < 1 else 0
             perm = perms[i : i + 2]
             split_perms.append("".join(perm[::-1] if rev else perm))
             split_revs.append(rev)
@@ -234,16 +235,19 @@ class Parser:
         # Apply general rules to produce the mapping
         self.buffer.mapping = self.produce_mapping(parsed_string)
         if self.buffer.mapping:
-            self.shift_nonbinary_mappings()
-            self.fill_empty_terminals()
-            # Apply special rules to validate the mapping
-            if self.validate_mapping():
-                # Commit the mapping to the tree
-                self.apply()
-                print(self.buffer.tree)
-                return True
+            if self.shift_nonbinary_mappings():
+                self.fill_empty_terminals()
+                # Apply special rules to validate the mapping
+                if self.validate_mapping():
+                    # Commit the mapping to the tree
+                    self.apply()
+                    print(self.buffer.tree)
+                    return True
+                else:
+                    print("Couldn't validate the mapping")
+                    return False
             else:
-                print("Couldn't validate the mapping")
+                print("Failed to make a shift")
                 return False
         else:
             print("Couldn't produce the mapping")
@@ -270,33 +274,57 @@ class Parser:
         return mapping
 
     def shift_nonbinary_mappings(self) -> None:
-        # For non-binary dichotomies, shift the mappings towards the right
-        # to fill the vacant place
+        # For non-binary dichotomies, shift the mappings from the first to the second
+        # mask (taking rev into account) if the second mask has no mappings
+        # Equivalent mappings are shifted together or not at all,
+        # compounds in LIFO order, and only if lembs allow
+        # queue = []
         nbs = [r != 0 for s in self.grules.struct for r in range(s)]
-        stances = self.buffer.mapping.stances
         for d, nb in enumerate(nbs):
             if not nb:
                 continue
             for mask_pair in self.masker.masks[d]:
-                rev = bool(min(mask_pair[0].rev, mask_pair[1].rev))
-                side = 0 if not rev else 1
-                key = [int(p) for p in mask_pair[side].key]
-                for i in range(len(stances))[:: -1 if not rev else 1]:
-                    stance = stances[i]
-                    if stance[0][: len(key)] == key:
-                        op_stance, cnt, slots = self.count_slots(stance, d)
-                        if slots > 0 and (
-                            i == len(stances) - 1
-                            # Cannot shift past the next mapping
-                            or int("".join([str(s) for s in op_stance[0]]), 2)
-                            <= int("".join([str(s) for s in stances[i + 1][0]]), 2)
-                        ):
-                            print(f"-> Shifting {stance} to {op_stance}")
-                            stances[i] = op_stance
-                        # Can only shift continuous arrays of mappings
-                        else:
-                            break
-        return
+                # Get keys for both masks
+                keys = [[int(p) for p in mask.key] for mask in mask_pair]
+                base_mask = self.masker.get_masks(tuple([keys[0][:-1], []]))
+                base_rev = bool(base_mask.rev) if base_mask else 0
+                min_rev = min([mask.rev for mask in mask_pair])
+                fkey, skey = keys if not base_rev else keys[::-1]
+                lemb = mask_pair[1 if not base_rev else 0].lemb
+                # Find indexes of orresponding mappings
+                fmatches = self.get_matching_stances(fkey, d)
+                smatches = self.get_matching_stances(skey, d)
+                # Discard mappings present in both masks
+                matches = {m: fmatches[m] for m in fmatches if m not in smatches}
+                # Shift the remaining mappings, but only the last lemb+1 compounds
+                for prev_reps in matches:
+                    num = min(lemb + 1, len(matches[prev_reps]))
+                    for n, drep in enumerate(reversed(matches[prev_reps])):
+                        if num > (0 if not min_rev else 1):
+                            for i in matches[prev_reps][drep]:
+                                print(f"-> Shifting {self.buffer.mapping.stances[i]}")
+                                stance = self.buffer.mapping.stances[i]
+                                char = self.buffer.mapping.chars[i]
+                                stance[0][d] = skey[-1]
+                                stance[1][d] = lemb - n - 1
+                                fit = self.fit_stance(stance, char)
+                                if not fit:
+                                    return False
+                            num += -1
+        return True
+
+    def fit_stance(self, stance: Stance, cand: str) -> bool:
+        # Sets the given stance to the masks if it is valid
+        for n in range(len(stance[0])):
+            part = tuple([stance[0][: n], stance[1][: n]])
+            masks = self.masker.get_masks(part, get_pair=True)
+            split = self.grules.splits[n]
+            comp = self.compare_with_mask(cand, masks[stance[0][n]], split)
+            if comp:
+                self.set_position(masks[stance[0][n]], masks[1 - stance[0][n]], comp)
+            else:
+                return False
+        return True
 
     def fill_empty_terminals(self) -> None:
         # Adds neutral chars to mirror those with no siblings at terminal nodes
@@ -308,14 +336,31 @@ class Parser:
             mask = self.masker.get_masks(tuple([op_stance[0][:-1], []]))
             if cnt == 0:
                 key = "".join([str(s) for s in op_stance[0]])
-                neut_type = self.srules.tneuts[int(key, 2)][0]
-                neut_char = self.alphabet.content[neut_type][0]
+                neut_char = self.srules.tneuts[int(key, 2)][0]
                 slot = op_stance[0][-1] if not mask.rev else 1 - op_stance[0][-1]
                 # Insert it to the right or to the left of the original
                 # depending on rev and whether it is the right or left sibling
                 stances.insert(i + slot, op_stance)
                 chars.insert(i + slot, neut_char)
         return
+
+    def get_matching_stances(self, stance: Stance, d: int) -> Dict[Dict[int]]:
+        # Collects stances equal to the given one up to d-th rep
+        # Returns a dict of dicts (reps before d -> d-th rep) of indices
+        matches = {}
+        for i, st in enumerate(self.buffer.mapping.stances):
+            keymask = st[0][: len(stance)]
+            prev_reps = "".join([str(s) for s in st[1][:d]])
+            drep = st[1][d]
+            if keymask == stance:
+                if prev_reps not in matches:
+                    matches[prev_reps] = {drep: [i]}
+                elif drep not in matches[prev_reps]:
+                    matches[prev_reps][drep] = [i]
+                else:
+                    matches[prev_reps][drep].append(i)
+
+        return matches
 
     def count_slots(self, stance: Stance, d: int = -1):
         # Checks how many vacant terminal slots exist opposite to the given one
@@ -396,8 +441,6 @@ class Parser:
         mask_pair = self.masker.get_masks(stance, get_pair=True)
         base_mask = self.masker.get_masks(stance)
         rev = bool(base_mask.rev) if base_mask else 0
-        if rank < 2:
-            rev = 0
 
         # Which mask is the first/second depends on rev
         masks = mask_pair[::-1] if rev else mask_pair
@@ -421,8 +464,8 @@ class Parser:
             masks[0].pos, masks[1].pos = None, 0
             return True
         # If both masks are fitting, choose the one with lesser rep
-        elif (conds[0] and comps[0]) and (conds[1] and comps[1]):
-            fit = 0 if comps[0][1] <= comps[1][1] else 1
+        # elif (conds[0] and comps[0]) and (conds[1] and comps[1]):
+        #    fit = 0 if comps[0][1] <= comps[1][1] else 1
         # First mask fitting (the second one wasn't fit OR ret is not forbidden)
         elif conds[0] and comps[0]:
             fit = 0
@@ -433,9 +476,10 @@ class Parser:
         else:
             return False
 
-        string = f"-> Fitting {cand} to the {num_strings[fit]} mask {masks[fit]}"
+        init_str = f"-> Fitting {cand} to the {num_strings[fit]} mask {masks[fit]}"
         self.set_position(masks[fit], masks[1 - fit], comps[fit])
-        print(f"{string} → {masks[fit]}")
+        fin_str = f"{init_str} → {masks[fit]}" if not split else init_str
+        print(fin_str)
 
         return (revs[fit], masks[fit].rep)
 
