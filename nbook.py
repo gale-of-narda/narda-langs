@@ -17,7 +17,7 @@ def _(Parser):
     #raéan
     #hréag
     #mı́ıfasol
-    input_string = 'w'
+    input_string = 'doparı́ıf'
     parser = Parser(level=1)
     res = parser.parse(input_string)
     return
@@ -29,11 +29,6 @@ def _():
     #    for mask_pair in rank:
     #        for mask in mask_pair:
     #            print(mask, mask.rev)
-    return
-
-
-@app.cell
-def _():
     return
 
 

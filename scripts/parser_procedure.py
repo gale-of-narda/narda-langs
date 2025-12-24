@@ -273,12 +273,11 @@ class Parser:
 
         return mapping
 
-    def shift_nonbinary_mappings(self) -> None:
+    def shift_nonbinary_mappings(self) -> bool:
         # For non-binary dichotomies, shift the mappings from the first to the second
         # mask (taking rev into account) if the second mask has no mappings
         # Equivalent mappings are shifted together or not at all,
         # compounds in LIFO order, and only if lembs allow
-        # queue = []
         nbs = [r != 0 for s in self.grules.struct for r in range(s)]
         for d, nb in enumerate(nbs):
             if not nb:
@@ -290,15 +289,17 @@ class Parser:
                 base_rev = bool(base_mask.rev) if base_mask else 0
                 min_rev = min([mask.rev for mask in mask_pair])
                 fkey, skey = keys if not base_rev else keys[::-1]
-                lemb = mask_pair[1 if not base_rev else 0].lemb
+                lemb = mask_pair[0 if not base_rev else 1].lemb
                 # Find indexes of orresponding mappings
                 fmatches = self.get_matching_stances(fkey, d)
                 smatches = self.get_matching_stances(skey, d)
                 # Discard mappings present in both masks
                 matches = {m: fmatches[m] for m in fmatches if m not in smatches}
+                print(f"Masks: {mask_pair}, matches: {matches}, min_rev: {min_rev}, lemb: {lemb}")
                 # Shift the remaining mappings, but only the last lemb+1 compounds
                 for prev_reps in matches:
                     num = min(lemb + 1, len(matches[prev_reps]))
+                    print(f"Prev_reps: {prev_reps}, num: {num}, {matches[prev_reps]}")
                     for n, drep in enumerate(reversed(matches[prev_reps])):
                         if num > (0 if not min_rev else 1):
                             for i in matches[prev_reps][drep]:
