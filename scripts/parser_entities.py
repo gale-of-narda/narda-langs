@@ -21,6 +21,7 @@ class Mask:
         self.demb = None
         self.pos = None
         self.rep = 0
+        self.active = False
         return
 
     def __repr__(self) -> str:

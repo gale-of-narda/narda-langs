@@ -45,13 +45,9 @@
     },
     "Words": {
         "good": [
-            "w",
-            "wá",
-            "́aw",
             "hréag",
             "ra", 
             "̃ar",
-            "ar",
             "rá",
             "ara",
             "ará", 
@@ -70,6 +66,10 @@
         ],
         "bad": [
             "a",
+            "w",
+            "ar",
+            "wá",
+            "́aw",
             "npd",
             "aea",
             "ráaar",
