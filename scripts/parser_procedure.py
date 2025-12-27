@@ -220,7 +220,7 @@ class Parser:
             content = self.alphabet.content.items()
             breakers = list(self.alphabet.breakers)
             embedders = list(self.alphabet.embedders)
-            if any(ch == nc for nc in breakers + embedders):
+            if any(ch in nc for nc in breakers + embedders):
                 return ch
             for key, val in content:
                 if ch in val:
@@ -264,10 +264,10 @@ class Parser:
 
     def produce_mapping(self, prep_string: str) -> Mapping | bool:
         # Produces the dichotomic stances for each character in the string
-        stances, chars = [], []
+        stances, chars, breaks = [], [], [0]
         for char in prep_string:
             print(f"Working with '{char}'")
-            stance = self.determine_char_stance(char)
+            stance = self.determine_char_stance(char, breaks)
             if stance is False:
                 print(f"=> Failed to match '{char}'")
                 return False
@@ -318,7 +318,7 @@ class Parser:
                                 stance = self.buffer.mapping.stances[i]
                                 char = self.buffer.mapping.chars[i]
                                 stance[0][d] = skey[-1]
-                                stance[1][d] = lemb - n - 1
+                                stance[1][d] = max(lemb - n - 1, 0)
                                 fit = self.fit_stance(stance, char)
                                 if not fit:
                                     return False
@@ -392,11 +392,11 @@ class Parser:
             tree.set_element(stance, char, set_all=True)
         return
 
-    def determine_char_stance(self, char: str) -> Stance | bool:
+    def determine_char_stance(self, char: str, breaks: List[int]) -> Stance | bool:
         # Cycle through the ranks and determine the positions of the char for each
         stance = ([], [])
         for d in range(len(self.masker.masks)):
-            decision = self.decide_dichotomy(char, stance)
+            decision = self.decide_dichotomy(char, stance, breaks)
             if type(decision) is bool:
                 return decision
             else:
@@ -405,11 +405,11 @@ class Parser:
 
         return stance
 
-    def decide_dichotomy(self, cand: str, stance: Stance) -> Tuple(int, int) | bool:
+    def decide_dichotomy(
+        self, cand: str, stance: Stance, breaks: List[int]
+    ) -> Tuple(int, int) | bool:
         # Determine the position of the candidate with respect to the dichotomy
         # found at the given stance
-        breakers = self.alphabet.breakers
-
         rank = len(stance[0])
         ret = bool(self.grules.rets[rank])
         skip = bool(self.grules.skips[rank])
@@ -418,9 +418,23 @@ class Parser:
         mask_pair = self.masker.get_masks(stance, get_pair=True)
         base_mask = self.masker.get_masks(stance)
         rev = bool(base_mask.rev) if base_mask else 0
-
         # Which mask is the first/second depends on rev
         masks = mask_pair[::-1] if rev else mask_pair
+
+        # Updating the breaker count if a breaker is encountered
+        for i, br in enumerate(self.alphabet.breakers):
+            if cand in br:
+                print("Ignoring the breaker")
+                breaks[0] += i + 1
+                return True
+
+        # Skipping to the second mask if the breaker count is positive
+        if breaks[0] > 0:
+            self.masker.reset_masks(masks[0])
+            masks[1].active = True
+            breaks[0] += -1
+            print(f"Skipping {masks[0]}")
+
         # Conditions of fit for the 1st and 2nd masks
         conds = [
             any([not masks[1].active, not ret]),
@@ -435,13 +449,8 @@ class Parser:
         num_strings = ["first", "second"]
         revs = [int(rev), int(not rev)]
 
-        # Skipping the breaker
-        if split and cand in breakers:
-            print("Ignoring the breaker")
-            masks[0].active, masks[1].active = False, True
-            return True
         # First mask fitting (the second one wasn't fit OR ret is not forbidden)
-        elif conds[0] and comps[0]:
+        if conds[0] and comps[0]:
             fit = 0
         # Second mask fitting (the first one wasn't fit OR skip is not forbidden)
         elif conds[1] and comps[1]:

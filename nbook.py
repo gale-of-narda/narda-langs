@@ -13,9 +13,16 @@ def _():
 
 @app.cell
 def _(Parser):
-    input_string = 'raun'
+    input_string = '́ann'
     parser = Parser(level=1)
-    res = parser.parse(input_string)
+    parser.parse(input_string)
+    stances = parser.buffer.mapping.stances
+    print([[[pos for pos in comp] for comp in st] for st in stances])
+    return
+
+
+@app.cell
+def _():
     return
 
 
