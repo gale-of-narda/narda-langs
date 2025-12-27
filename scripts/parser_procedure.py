@@ -169,8 +169,10 @@ class Masker:
         masks = [m for r in self.masks for mp in r for m in mp]
         for mask in masks:
             if mask.key[: len(target.key)] == target.key:
-                mask.pos, mask.rep = 0, 0
-                mask.active = False
+                # mask.pos, mask.rep = 0, 0
+                if mask.active:
+                    mask.pos = len(mask.literals) - 1
+                    mask.active = False
         return
 
 
@@ -289,6 +291,7 @@ class Parser:
         for d, nb in enumerate(nbs):
             if not nb:
                 continue
+
             for mask_pair in self.masker.masks[d]:
                 # Get keys for both masks
                 keys = [[int(p) for p in mask.key] for mask in mask_pair]
@@ -297,11 +300,14 @@ class Parser:
                 min_rev = min([mask.rev for mask in mask_pair])
                 fkey, skey = keys if not base_rev else keys[::-1]
                 lemb = mask_pair[0 if not base_rev else 1].lemb
+
                 # Find indexes of orresponding mappings
                 fmatches = self.get_matching_stances(fkey, d)
                 smatches = self.get_matching_stances(skey, d)
+
                 # Discard mappings present in both masks
                 matches = {m: fmatches[m] for m in fmatches if m not in smatches}
+
                 # Shift the remaining mappings, but only the last lemb+1 compounds
                 for prev_reps in matches:
                     num = min(lemb + 1, len(matches[prev_reps]))
@@ -339,7 +345,7 @@ class Parser:
                 key = "".join([str(s) for s in op_stance[0]])
                 neut_char = self.srules.tneuts[int(key, 2)][0]
                 slot = op_stance[0][-1] if not mask.rev else 1 - op_stance[0][-1]
-                fit = self.fit_stance(op_stance, neut_char)
+                fit = self.fit_stance(op_stance, neut_char, term_only=True)
                 if not fit:
                     return False
                 else:
@@ -363,7 +369,6 @@ class Parser:
             perms = self.srules.tperms[int(key, 2)]
             perm = perms[stance[1][-1]] if not rev else perms[::-1][stance[1][-1]]
             if char not in perm and rep not in perm:
-                print(perms, stance[1][-1], rev, perm)
                 print(f"No permission for '{char}' of class '{rep}' at {stance}")
                 return False
 
@@ -429,7 +434,7 @@ class Parser:
 
         num_strings = ["first", "second"]
         revs = [int(rev), int(not rev)]
-        
+
         # Skipping the breaker
         if split and cand in breakers:
             print("Ignoring the breaker")
@@ -489,11 +494,11 @@ class Parser:
         # Record the pos and rep params obtained by comparison in the mask pair
         # If another compound is embedded,
         # annul the parameters of the target mask and the downward masks
+        self.masker.reset_masks(other_mask)
         if target_mask.rep < comp[1]:
             self.masker.reset_masks(target_mask)
         target_mask.pos, target_mask.rep = comp
         target_mask.active = True
-        self.masker.reset_masks(other_mask)
         return
 
     def get_matching_stances(self, stance: Stance, d: int) -> Dict[Dict[int]]:
@@ -514,9 +519,11 @@ class Parser:
 
         return matches
 
-    def fit_stance(self, stance: Stance, cand: str) -> bool:
+    def fit_stance(self, stance: Stance, cand: str, term_only: bool = False) -> bool:
         # Sets the given stance to the masks if it is valid
         for n in range(len(stance[0])):
+            if term_only and n != len(stance[0]) - 1:
+                continue
             part = tuple([stance[0][:n], stance[1][:n]])
             masks = self.masker.get_masks(part, get_pair=True)
             split = self.grules.splits[n]

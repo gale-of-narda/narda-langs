@@ -13,14 +13,9 @@ def _():
 
 @app.cell
 def _(Parser):
-    input_string = 'aeua'
-    parser = Parser(level=0)
+    input_string = 'raun'
+    parser = Parser(level=1)
     res = parser.parse(input_string)
-    return
-
-
-@app.cell
-def _():
     return
 
 
