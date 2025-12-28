@@ -13,15 +13,10 @@ def _():
 
 @app.cell
 def _(Parser):
-    input_string = "u u ı u o o e o"
-    parser = Parser(level=0)
+    input_string = "hréagu<san>"
+    parser = Parser(level=1)
     parser.parse(input_string)
     print([e.stance for e in parser.buffer.mapping.elems])
-    return
-
-
-@app.cell
-def _():
     return
 
 

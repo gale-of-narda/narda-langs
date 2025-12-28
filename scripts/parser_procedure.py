@@ -22,7 +22,7 @@ class Loader:
 
     def load_alphabet(self, level: int = 0):
         """
-        Loads the alphabet and extracts the four types of stringacters.
+        Loads the alphabet and extracts the four types of characters.
         """
         path = Path(self.path + "params/alphabet.json")
         with path.open("r", encoding="utf-8") as f:
@@ -64,7 +64,7 @@ class Loader:
 
     def load_srules(self, level: int = 0):
         """
-        Loads the special rules that set the stringacter permissions
+        Loads the special rules that set the character permissions
         for each node of the trees.
         """
         path = Path(self.path + "params/rules_special.json")
@@ -202,7 +202,7 @@ class Parser:
         return
 
     def prepare(self, st: str) -> str:
-        # Removes non-alphabetic stringacters and makes the replacements
+        # Removes non-alphabetic characters and makes the replacements
         # Replace the special strings as defined in the alphabet
         reps = self.alphabet.equivalents
         replaced_string = [reps[ch] if ch in reps else ch for ch in st]
@@ -223,7 +223,7 @@ class Parser:
         return stripped_string.lower()
 
     def represent(self, ch: str) -> str:
-        # Repalces the input stringacter with its alphabetic representation
+        # Repalces the input character with its alphabetic representation
         if self.level == 0:
             return ch.upper()
         else:
@@ -273,7 +273,7 @@ class Parser:
         return True
 
     def produce_mapping(self, prep_string: str) -> Mapping | bool:
-        # Produces the dichotomic stances for each stringacter in the strin
+        # Produces the dichotomic stances for the split items of prep_string
         sep = self.alphabet.separators
         pusher, popper = self.alphabet.embedders
         mapping = self.buffer.mapping
@@ -283,26 +283,32 @@ class Parser:
         for string in string_iterator:
             print(f"Working with '{string}'")
 
-            if string in (pusher, popper):
-                if string == pusher:
-                    mapping.push()
-                    self.masker.construct_masks(self.buffer.mapping.cur_depth)
-                else:
-                    mapping.pop()
-                print(f"Depth changed to {mapping.cur_depth}")
+            if string == pusher:
+                mapping.push()
+                self.masker.construct_masks(self.buffer.mapping.cur_depth)
+                print(f"Depth increased to {mapping.cur_depth}")
                 continue
+            elif string == popper:
+                mapping.pop()
+                elem = mapping._cursor[-1]
+                depth = elem.stance.depth + 1
+                print(f"Depth decreased to {mapping.cur_depth}")
+            else:
+                elem = Element(string, Stance(), self.level)
 
-            stance = self.determine_string_stance(string, breaks)
+            elem.stance = self.determine_string_stance(elem.head.content, breaks)
 
-            if stance is False:
+            if elem.stance is False:
                 print(f"=> Failed to match '{string}'")
                 return False
-            elif stance is True:
+            elif elem.stance is True:
                 continue
             else:
-                elem = Element(string, stance, self.level)
+                if string == popper:
+                    elem.stance.depth = depth
+                    continue
                 mapping.record_element(elem)
-                print(f"=> Assigned the stance {stance}")
+                print(f"=> Assigned the stance {elem.stance}")
 
         return mapping
 
@@ -394,13 +400,13 @@ class Parser:
             return True
 
         for i, e in enumerate(self.buffer.mapping.elems):
-            rep = self.represent(e.content)
+            rep = self.represent(e.head.content)
             key = "".join([str(s) for s in e.stance.pos])
             rev = bool(self.grules.revs[int(key, 2)])
             perms = self.srules.tperms[int(key, 2)]
             perm = perms[e.stance.rep[-1]] if not rev else perms[::-1][e.stance.rep[-1]]
-            if e.content not in perm and rep not in perm:
-                print(f"No permission for '{e.content}' of class '{rep}' at {e.stance}")
+            if e.head.content not in perm and rep not in perm:
+                print(f"No permission for '{e.head}' of class '{rep}' at {e.stance}")
                 return False
 
         return True
@@ -477,8 +483,8 @@ class Parser:
         ]
         # Results of fit for the masks: tuple(pos, rep)
         comps = [
-            self.compare_with_mask(cand, masks[0], split),
-            self.compare_with_mask(cand, masks[1], split),
+            self.compare_with_mask(self.represent(cand), masks[0], split),
+            self.compare_with_mask(self.represent(cand), masks[1], split),
         ]
 
         num_strings = ["first", "second"]
@@ -501,9 +507,8 @@ class Parser:
 
         return (revs[fit], masks[fit].rep)
 
-    def compare_with_mask(self, cand: str, mask: Mask, split: bool):
+    def compare_with_mask(self, rep: str, mask: Mask, split: bool):
         # Check if the representation of the candidate string fits the given mask
-        rep = self.represent(cand)
         singular = len(mask.literals) == 1
         incr = 1 if singular and mask.active else 0
 
@@ -572,7 +577,9 @@ class Parser:
             part_stance = e.stance.copy(n)
             masks = self.masker.get_masks(part_stance, depth, get_pair=True)
             split = self.grules.splits[n]
-            comp = self.compare_with_mask(e.content, masks[e.stance.pos[n]], split)
+            comp = self.compare_with_mask(
+                self.represent(e.head.content), masks[e.stance.pos[n]], split
+            )
             if comp:
                 self.set_position(
                     masks[e.stance.pos[n]], masks[1 - e.stance.pos[n]], comp

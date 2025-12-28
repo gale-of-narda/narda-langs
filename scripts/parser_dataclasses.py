@@ -1,8 +1,6 @@
 from typing import List, Any, Optional
 from dataclasses import dataclass, field
 
-from scripts.parser_entities import Tree, Mapping
-
 
 @dataclass
 class Alphabet:
@@ -34,8 +32,8 @@ class SpecialRules:
 @dataclass
 class Buffer:
     parsed_string: Optional[str] = None
-    mapping: Optional[Mapping] = None
-    tree: Tree = Tree([0])
+    mapping: Optional[Any] = None
+    tree: Optional[Any] = None
 
 
 @dataclass

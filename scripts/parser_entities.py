@@ -1,7 +1,7 @@
 from typing import Tuple, List, Callable, Optional, Any
 from collections import deque
 
-type Stance = (List[int], List[int])
+from scripts.parser_dataclasses import Stance
 
 
 class Mask:
@@ -106,20 +106,19 @@ class Element:
         return
 
     def __repr__(self) -> str:
-        return self.content
-        #if self.level == 1:
-        #    return self.content
-        #else:
-        #    return repr(self.head)
+        if isinstance(self.content, List):
+            return repr(self.head)
+        else:
+            return self.content
 
     def __str__(self) -> str:
         return str(repr(self))
 
     def _set_head(self) -> Element:
-        if self.level == 1:
-            return self
-        else:
+        if isinstance(self.content, List):
             return self.content[0]
+        else:
+            return self
 
 
 class Mapping:
@@ -152,7 +151,7 @@ class Mapping:
             raise Exception("Tried to set a negative depth")
         self.cur_depth -= 1
         self._cursor = self._holder
-        self._cursor[-1] = Element(self._cursor[-1], tuple([[], []]), self.level)
+        self._cursor[-1] = Element(self._cursor[-1], Stance(), self.level)
         return
 
 
