@@ -93,21 +93,67 @@ class Mask:
 
 
 class Element:
-    """
-    A wrapper for the given string that is understood as a language element
-    of the given level.
+    """A language element is an alphabetic string assigned a stance
+    of a certain level.
     """
 
-    def __init__(self, content: str, level: int = 0) -> None:
-        self.content = content
+    def __init__(self, content, stance: Stance, level: int) -> None:
+        self.content: str | List[Element] = content
+        self.stance = stance
         self.level = level
         self.rep: str = str()
+        self.head = self._set_head()
+        return
 
     def __repr__(self) -> str:
         return self.content
+        #if self.level == 1:
+        #    return self.content
+        #else:
+        #    return repr(self.head)
 
     def __str__(self) -> str:
         return str(repr(self))
+
+    def _set_head(self) -> Element:
+        if self.level == 1:
+            return self
+        else:
+            return self.content[0]
+
+
+class Mapping:
+    """A temporary structure holding elements as they are recorded.
+    When a list of elements of depth > 0 is fully recorded, it is
+    replaced by an element of a higher level.
+    """
+
+    def __init__(self, level: int) -> None:
+        self.level = level
+        self.elems: List[Element] = []
+        self.cur_depth: int = 0
+        self._cursor = self.elems
+        self._holder = None
+        return
+
+    def record_element(self, e: Element) -> None:
+        self._cursor.append(e)
+        return
+
+    def push(self) -> None:
+        self.cur_depth += 1
+        self._cursor.append([])
+        self._holder = self._cursor
+        self._cursor = self._cursor[-1]
+        return
+
+    def pop(self) -> None:
+        if self.cur_depth == 0:
+            raise Exception("Tried to set a negative depth")
+        self.cur_depth -= 1
+        self._cursor = self._holder
+        self._cursor[-1] = Element(self._cursor[-1], tuple([[], []]), self.level)
+        return
 
 
 class Node:
@@ -268,7 +314,7 @@ class Tree:
     def get_node(self, stance: Stance, ignore_comps: bool = False) -> Node:
         cursor = 0
         node = self.root
-        pos, comps = "".join([str(s) for s in stance[0]]), stance[1]
+        pos, comps = "".join([str(s) for s in stance.pos]), stance.rep
         struct_sums = [sum(self.struct[: i + 1]) for i, s in enumerate(self.struct)]
         struct_to_loop = [s for s in struct_sums if s <= len(pos)]
         for s in struct_to_loop:
@@ -280,14 +326,13 @@ class Tree:
             cursor += s
         return node
 
-    def set_element(self, stance: Stance, char: str, set_all: bool = True) -> None:
-        e = Element(char)
-        node = self.get_node(stance)
+    def set_element(self, e: Element, set_all: bool = True) -> None:
+        node = self.get_node(e.stance)
         if set_all:
             cursor = 0
-            struct = [0] + self.struct[: len(stance[0])]
-            for s in struct[: len(stance[0]) + 1]:
-                node = self.get_node(tuple([st[: cursor + s] for st in stance]))
+            struct = [0] + self.struct[: len(e.stance.pos)]
+            for s in struct[: len(e.stance.pos) + 1]:
+                node = self.get_node(e.stance.copy(cursor + s))
                 node.map_element(e)
                 cursor += s
         return

@@ -6,7 +6,8 @@
     "Equivalencies": {
         "'": "ə"
     },
-    "Separators": ["", " ", "."],
-    "Breakers": [[], ["́̃", "̄"], []],
-    "Embedders": [["<", ">"],[":", ";"], []]
+    "Wildcards": ["@", "#"],
+    "Separators": [" ", ""],
+    "Breakers": [[], ["́̃", "̄"]],
+    "Embedders": [[":", ";"],["<", ">"]]
 }

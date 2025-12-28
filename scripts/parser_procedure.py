@@ -4,10 +4,9 @@ from typing import Dict, Tuple, List
 from pathlib import Path
 from math import log
 
-from scripts.parser_entities import Tree, Mask
+from scripts.parser_entities import Tree, Mask, Mapping, Element
 from scripts.parser_dataclasses import Alphabet, GeneralRules, SpecialRules
-from scripts.parser_dataclasses import Buffer, Mapping
-from scripts.parser_dataclasses import Stance
+from scripts.parser_dataclasses import Buffer, Stance
 
 
 class Loader:
@@ -23,17 +22,17 @@ class Loader:
 
     def load_alphabet(self, level: int = 0):
         """
-        Loads the alphabet and extracts the four types of characters.
+        Loads the alphabet and extracts the four types of stringacters.
         """
         path = Path(self.path + "params/alphabet.json")
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)
         params = Alphabet(
-            # Intrinsically meaningful chars
-            # Content chars come in classes and are represented by their class
-            # The first char for each class is designated as the neutral char
+            # Intrinsically meaningful strings
+            # Content strings come in classes and are represented by their class
+            # The first string for each class is designated as the neutral string
             content=data["Content"],
-            # Mappings between special chars and ordinary alphabetic chars
+            # Mappings between special strings and ordinary alphabetic strings
             equivalents=data["Equivalencies"],
             # Chars that delineate elements of the same level
             separators=data["Separators"][level],
@@ -65,7 +64,7 @@ class Loader:
 
     def load_srules(self, level: int = 0):
         """
-        Loads the special rules that set the character permissions
+        Loads the special rules that set the stringacter permissions
         for each node of the trees.
         """
         path = Path(self.path + "params/rules_special.json")
@@ -89,7 +88,7 @@ class Masker:
         self.revs = []
         self.masks = []
         self._unravel_term_params()
-        self._construct_masks()
+        self.construct_masks()
         return
 
     def _unravel_term_params(self) -> None:
@@ -105,36 +104,6 @@ class Masker:
 
         return
 
-    def _construct_masks(self) -> None:
-        # Creates pairs of masks for each dichotomy
-        i = 0
-        dichs = [r == len(range(s)) - 1 for s in self.struct for r in range(s)]
-        ranks = [(i := i + 1) if d else None for d in dichs]
-
-        for r, rank in enumerate(ranks[::-1]):
-            mask_pairs = []
-            perm_rank = self.perms[r]
-
-            for p in range(0, len(perm_rank), 2):
-                left_mask = Mask(perm_rank[p : p + 2][0], len(ranks) - r, p)
-                right_mask = Mask(perm_rank[p : p + 2][1], len(ranks) - r, p + 1)
-                left_mask.rev = self.revs[r][p : p + 2][0]
-                right_mask.rev = self.revs[r][p : p + 2][1]
-                if rank:
-                    left_mask.lemb = self.lemb[rank][p : p + 2][0]
-                    left_mask.demb = self.demb[rank][p : p + 2][0]
-                    right_mask.lemb = self.lemb[rank][p : p + 2][1]
-                    right_mask.demb = self.demb[rank][p : p + 2][1]
-                mask_pairs.append([left_mask, right_mask])
-
-            self.masks.append(mask_pairs)
-
-        self.masks = self.masks[::-1]
-        self.perms = self.perms[::-1]
-        self.revs = self.revs[::-1]
-
-        return
-
     def _split(self, perms: List[str], revs: List[int], r: int) -> List[List[str]]:
         # Splits the perms into n chunks, reversing the order according to revs
         split_perms, split_revs = [], []
@@ -146,32 +115,74 @@ class Masker:
 
         return split_perms, split_revs
 
-    def get_masks(self, stance: Stance, get_pair: bool = False) -> Mask | Tuple[Mask]:
+    def construct_masks(self, depth: int = 0) -> None:
+        # Creates pairs of masks for each dichotomy
+        i = 0
+        dichs = [r == len(range(s)) - 1 for s in self.struct for r in range(s)]
+        ranks = [(i := i + 1) if d else None for d in dichs]
+
+        masks = []
+        for r, rank in enumerate(ranks[::-1]):
+            mask_pairs = []
+            perm_rank = self.perms[r]
+
+            for p in range(0, len(perm_rank), 2):
+                mask_rank = len(ranks) - r if len(self.masks) == 0 else r + 1
+                left_mask = Mask(perm_rank[p : p + 2][0], mask_rank, p)
+                right_mask = Mask(perm_rank[p : p + 2][1], mask_rank, p + 1)
+                left_mask.rev = self.revs[r][p : p + 2][0]
+                right_mask.rev = self.revs[r][p : p + 2][1]
+                if rank:
+                    left_mask.lemb = self.lemb[rank][p : p + 2][0]
+                    left_mask.demb = self.demb[rank][p : p + 2][0]
+                    right_mask.lemb = self.lemb[rank][p : p + 2][1]
+                    right_mask.demb = self.demb[rank][p : p + 2][1]
+                mask_pairs.append([left_mask, right_mask])
+
+            masks.append(mask_pairs)
+
+        # Create non-existing depths of masks
+        for d in range(depth - len(self.masks) + 1):
+            self.masks.append(masks[::-1] if len(self.masks) == 0 else masks)
+
+        self.perms = self.perms[::-1]
+        self.revs = self.revs[::-1]
+
+        return
+
+    def get_masks(
+        self, stance: Stance, depth: int, get_pair: bool = False
+    ) -> Mask | Tuple[Mask]:
         """
         Returns the mask at the address defined by the stance.
         If get_pair, returns the pair of masks into which the addressed mask splits.
         """
-        if len(stance[0]) == 0:
-            return self.masks[0][0] if get_pair else None
+        if len(self.masks) < depth:
+            self.construct_masks(depth)
+
+        masks_at_depth = self.masks[depth]
+
+        if len(stance.pos) == 0:
+            return masks_at_depth[0][0] if get_pair else None
         else:
-            key = "".join(str(s) for s in stance[0])
-            pairs = [mp for r in self.masks for mp in r]
+            key = "".join(str(s) for s in stance.pos)
+            pairs = [mp for r in masks_at_depth for mp in r]
             for pair in pairs:
                 if get_pair:
                     if pair[0].key[:-1] == key and pair[1].key[:-1] == key:
                         return pair
                 else:
                     if pair[0].key[:-1] == key[:-1] and pair[1].key[:-1] == key[:-1]:
-                        return pair[stance[0][-1]]
-            raise Exception(f"Couldn't find masks with stance {stance[0]}")
+                        return pair[stance.pos[-1]]
+            raise Exception(f"Couldn't find masks with stance {stance}")
 
-    def reset_masks(self, target: Mask) -> None:
-        masks = [m for r in self.masks for mp in r for m in mp]
+    def reset_masks(self, target: Mask, depth: int) -> None:
+        masks = [m for r in self.masks[depth] for mp in r for m in mp]
         for mask in masks:
             if mask.key[: len(target.key)] == target.key:
-                # mask.pos, mask.rep = 0, 0
                 if mask.active:
                     mask.pos = len(mask.literals) - 1
+                    mask.rep = 0
                     mask.active = False
         return
 
@@ -191,29 +202,28 @@ class Parser:
         return
 
     def prepare(self, st: str) -> str:
-        # Removes non-alphabetic characters and makes the replacements
-
-        # Replace the special chars as defined in the alphabet
+        # Removes non-alphabetic stringacters and makes the replacements
+        # Replace the special strings as defined in the alphabet
         reps = self.alphabet.equivalents
         replaced_string = [reps[ch] if ch in reps else ch for ch in st]
         replaced_string = "".join(replaced_string)
 
-        # Erase the non-alphabetic chars from the string
+        # Erase the non-alphabetic strings from the string
         content = "".join(self.alphabet.content.values())
         separators = "".join(self.alphabet.separators)
         breakers = "".join(self.alphabet.breakers)
         embedders = "".join(self.alphabet.embedders)
         full_mask = content + separators + breakers + embedders
-        to_strip = separators + embedders
+        to_strip = separators  # + embedders
         masked = [ch for ch in replaced_string if ch in full_mask]
 
-        # Strip separators and embedders chars from both ends
+        # Strip separators and embedders strings from both ends
         stripped_string = "".join(masked).strip("".join(to_strip))
 
         return stripped_string.lower()
 
     def represent(self, ch: str) -> str:
-        # Repalces the input character with its alphabetic representation
+        # Repalces the input stringacter with its alphabetic representation
         if self.level == 0:
             return ch.upper()
         else:
@@ -229,23 +239,23 @@ class Parser:
 
     def parse(self, input_string: str) -> bool:
         # Parse the input string
-        self.buffer.tree = Tree(self.grules.struct)
         self.masker = Masker(self.grules)
+        self.buffer.mapping = Mapping(self.level)
 
         prepared_string = self.prepare(input_string)
         self.buffer.parsed_string = prepared_string
         print(f"Parsing '{input_string}' as '{prepared_string}'")
 
         # Apply general rules to produce the mapping
-        self.buffer.mapping = self.produce_mapping(prepared_string)
-        if not self.buffer.mapping:
+        res = self.produce_mapping(prepared_string)
+        if not res:
             print("Failed to produce the mapping")
             return False
 
         pipe = [
             # Shift the non-binary mappings to the right to fill empty slots
             (self.shift_nonbinary_mappings, "Failed to make a shift"),
-            # Fill empty terminal siblings of existing mappings with neutral chars
+            # Fill empty terminal siblings of existing mappings with neutral strings
             (self.fill_empty_terminals, "Failed to fill an empty terminal"),
             # Apply special rules to validate the final mapping
             (self.validate_mapping, "The mapping is invalid"),
@@ -263,22 +273,36 @@ class Parser:
         return True
 
     def produce_mapping(self, prep_string: str) -> Mapping | bool:
-        # Produces the dichotomic stances for each character in the string
-        stances, chars, breaks = [], [], [0]
-        for char in prep_string:
-            print(f"Working with '{char}'")
-            stance = self.determine_char_stance(char, breaks)
+        # Produces the dichotomic stances for each stringacter in the strin
+        sep = self.alphabet.separators
+        pusher, popper = self.alphabet.embedders
+        mapping = self.buffer.mapping
+
+        breaks = [0]
+        string_iterator = prep_string.split(sep) if sep else prep_string
+        for string in string_iterator:
+            print(f"Working with '{string}'")
+
+            if string in (pusher, popper):
+                if string == pusher:
+                    mapping.push()
+                    self.masker.construct_masks(self.buffer.mapping.cur_depth)
+                else:
+                    mapping.pop()
+                print(f"Depth changed to {mapping.cur_depth}")
+                continue
+
+            stance = self.determine_string_stance(string, breaks)
+
             if stance is False:
-                print(f"=> Failed to match '{char}'")
+                print(f"=> Failed to match '{string}'")
                 return False
             elif stance is True:
                 continue
             else:
-                stances.append(stance)
-                chars.append(char)
+                elem = Element(string, stance, self.level)
+                mapping.record_element(elem)
                 print(f"=> Assigned the stance {stance}")
-
-        mapping = Mapping(chars, stances)
 
         return mapping
 
@@ -292,10 +316,14 @@ class Parser:
             if not nb:
                 continue
 
-            for mask_pair in self.masker.masks[d]:
+            for mask_pair in self.masker.masks[self.buffer.mapping.cur_depth][d]:
                 # Get keys for both masks
                 keys = [[int(p) for p in mask.key] for mask in mask_pair]
-                base_mask = self.masker.get_masks(tuple([keys[0][:-1], []]))
+                base_stance = Stance()
+                base_stance.pos = keys[0][:-1]
+                base_mask = self.masker.get_masks(
+                    base_stance, self.buffer.mapping.cur_depth
+                )
                 base_rev = bool(base_mask.rev) if base_mask else 0
                 min_rev = min([mask.rev for mask in mask_pair])
                 fkey, skey = keys if not base_rev else keys[::-1]
@@ -314,45 +342,49 @@ class Parser:
                     for n, drep in enumerate(reversed(matches[prev_reps])):
                         if num > (0 if not min_rev else 1):
                             for i in matches[prev_reps][drep]:
-                                print(f"-> Shifting {self.buffer.mapping.stances[i]}")
-                                stance = self.buffer.mapping.stances[i]
-                                char = self.buffer.mapping.chars[i]
-                                stance[0][d] = skey[-1]
-                                stance[1][d] = max(lemb - n - 1, 0)
-                                fit = self.fit_stance(stance, char)
+                                stance = self.buffer.mapping.elems[i].stance
+                                print(f"-> Shifting {stance}")
+                                stance.pos[d] = skey[-1]
+                                stance.rep[d] = max(lemb - n - 1, 0)
+                                fit = self.fit_element(self.buffer.mapping.elems[i])
                                 if not fit:
                                     return False
                             num += -1
         return True
 
     def fill_empty_terminals(self) -> bool:
-        # Adds neutral chars to mirror those with no siblings at terminal nodes
+        # Adds neutral strings to mirror those with no siblings at terminal nodes
         if self.level == 0:
             return True
 
-        stances = self.buffer.mapping.stances
-        chars = self.buffer.mapping.chars
+        elems = self.buffer.mapping.elems
 
-        for i, stance in enumerate(stances):
-            op_stance = tuple([[s for s in pt] for pt in stance])
-            op_stance[0][-1], op_stance[1][-1] = 1 - op_stance[0][-1], 0
+        for i, e in enumerate(elems):
+            op_stance = e.stance.copy()
+            op_stance.pos[-1], op_stance.rep[-1] = 1 - op_stance.pos[-1], 0
 
             cnt = self.count_slots(op_stance)
-            mask = self.masker.get_masks(tuple([op_stance[0][:-1], []]))
-            key = "".join([str(s) for s in op_stance[0]])
 
             if cnt == 0:
-                key = "".join([str(s) for s in op_stance[0]])
-                neut_char = self.srules.tneuts[int(key, 2)][0]
-                slot = op_stance[0][-1] if not mask.rev else 1 - op_stance[0][-1]
-                fit = self.fit_stance(op_stance, neut_char, term_only=True)
+                mask_stance = Stance()
+                mask_stance.pos = op_stance.pos[:-1]
+                mask = self.masker.get_masks(mask_stance, self.buffer.mapping.cur_depth)
+                key = "".join([str(s) for s in op_stance.pos])
+
+                key = "".join([str(s) for s in op_stance.pos])
+                neut_string = self.srules.tneuts[int(key, 2)][0]
+                slot = op_stance.pos[-1] if not mask.rev else 1 - op_stance.pos[-1]
+                neut_elem = Element(neut_string, op_stance, self.level)
+
+                fit = self.fit_element(neut_elem, term_only=True)
+
                 if not fit:
                     return False
                 else:
                     # Insert it to the right or to the left of the original
                     # depending on rev and whether it is the right or left sibling
-                    stances.insert(i + slot, op_stance)
-                    chars.insert(i + slot, neut_char)
+                    print(f"Inserting {neut_elem} with stance {op_stance}")
+                    elems.insert(i + slot, neut_elem)
 
         return True
 
@@ -361,47 +393,48 @@ class Parser:
         if self.level == 0:
             return True
 
-        for i, stance in enumerate(self.buffer.mapping.stances):
-            char = self.buffer.mapping.chars[i]
-            rep = self.represent(char)
-            key = "".join([str(s) for s in stance[0]])
+        for i, e in enumerate(self.buffer.mapping.elems):
+            rep = self.represent(e.content)
+            key = "".join([str(s) for s in e.stance.pos])
             rev = bool(self.grules.revs[int(key, 2)])
             perms = self.srules.tperms[int(key, 2)]
-            perm = perms[stance[1][-1]] if not rev else perms[::-1][stance[1][-1]]
-            if char not in perm and rep not in perm:
-                print(f"No permission for '{char}' of class '{rep}' at {stance}")
+            perm = perms[e.stance.rep[-1]] if not rev else perms[::-1][e.stance.rep[-1]]
+            if e.content not in perm and rep not in perm:
+                print(f"No permission for '{e.content}' of class '{rep}' at {e.stance}")
                 return False
 
         return True
 
     def apply(self) -> None:
-        # Maps the chars to the tree with the obtained stances
+        # Maps the strings to the tree with the obtained stances
         # Embeds compounds as it meets their addresses in the stances
-        maps, tree = self.buffer.mapping, self.buffer.tree
+        self.buffer.tree = Tree(self.grules.struct)
+        elems, tree = self.buffer.mapping.elems, self.buffer.tree
         finals = [r + 1 == s for s in self.grules.struct for r in range(s)]
-        for i, stance in enumerate(maps.stances):
-            char = maps.chars[i]
-            for j, st in enumerate(stance[0]):
+        for i, e in enumerate(elems):
+            for j, st in enumerate(e.stance.pos):
                 if finals[j]:
-                    base_stance = tuple([st[: j + 1] for st in stance])
-                    base_stance[1][-1] = 0
+                    base_stance = e.stance.copy(j + 1)
+                    base_stance.rep[-1] = 0
                     base_node = tree.get_node(base_stance)
-                    if stance[1][j] > len(base_node.compounds):
-                        tree.embed_compound(base_node)
-                        print(f"Embedded a compound at node {base_node.num}")
-            tree.set_element(stance, char, set_all=True)
+                    if e.stance.rep[j] > len(base_node.compounds):
+                        for c in range(e.stance.rep[j] - len(base_node.compounds)):
+                            tree.embed_compound(base_node)
+                            print(f"Embedded a compound at node {base_node.num}")
+            tree.set_element(e, set_all=True)
         return
 
-    def determine_char_stance(self, char: str, breaks: List[int]) -> Stance | bool:
-        # Cycle through the ranks and determine the positions of the char for each
-        stance = ([], [])
-        for d in range(len(self.masker.masks)):
-            decision = self.decide_dichotomy(char, stance, breaks)
+    def determine_string_stance(self, string: str, breaks: List[int]) -> Stance | bool:
+        # Cycle through the ranks and determine the positions of the string for each
+        stance = Stance()
+        for d in range(len(self.masker.masks[self.buffer.mapping.cur_depth])):
+            decision = self.decide_dichotomy(string, stance, breaks)
             if type(decision) is bool:
                 return decision
             else:
-                stance[0].append(decision[0])
-                stance[1].append(decision[1])
+                stance.pos.append(decision[0])
+                stance.rep.append(decision[1])
+                stance.depth = self.buffer.mapping.cur_depth
 
         return stance
 
@@ -410,13 +443,15 @@ class Parser:
     ) -> Tuple(int, int) | bool:
         # Determine the position of the candidate with respect to the dichotomy
         # found at the given stance
-        rank = len(stance[0])
+        rank = len(stance.pos)
         ret = bool(self.grules.rets[rank])
         skip = bool(self.grules.skips[rank])
         split = bool(self.grules.splits[rank])
 
-        mask_pair = self.masker.get_masks(stance, get_pair=True)
-        base_mask = self.masker.get_masks(stance)
+        mask_pair = self.masker.get_masks(
+            stance, self.buffer.mapping.cur_depth, get_pair=True
+        )
+        base_mask = self.masker.get_masks(stance, self.buffer.mapping.cur_depth)
         rev = bool(base_mask.rev) if base_mask else 0
         # Which mask is the first/second depends on rev
         masks = mask_pair[::-1] if rev else mask_pair
@@ -424,13 +459,13 @@ class Parser:
         # Updating the breaker count if a breaker is encountered
         for i, br in enumerate(self.alphabet.breakers):
             if cand in br:
-                print("Ignoring the breaker")
+                print("Breaker recorded")
                 breaks[0] += i + 1
                 return True
 
         # Skipping to the second mask if the breaker count is positive
         if breaks[0] > 0:
-            self.masker.reset_masks(masks[0])
+            self.masker.reset_masks(masks[0], self.buffer.mapping.cur_depth)
             masks[1].active = True
             breaks[0] += -1
             print(f"Skipping {masks[0]}")
@@ -467,7 +502,7 @@ class Parser:
         return (revs[fit], masks[fit].rep)
 
     def compare_with_mask(self, cand: str, mask: Mask, split: bool):
-        # Check if the representation of the candidate char fits the given mask
+        # Check if the representation of the candidate string fits the given mask
         rep = self.represent(cand)
         singular = len(mask.literals) == 1
         incr = 1 if singular and mask.active else 0
@@ -482,11 +517,11 @@ class Parser:
         # Otherwise start going throgh the literals one-by-one
         while any(
             [
-                # Current char, unless the mask is singular and was already fit
+                # Current string, unless the mask is singular and was already fit
                 incr == 0 and not (singular and mask.active),
-                # Next char, if the mask is singular or was already fit
+                # Next string, if the mask is singular or was already fit
                 incr == 1 and (singular or mask.active),
-                # Following chars, unless a non-optional char is getting skipped
+                # Following strings, unless a non-optional string is getting skipped
                 incr > 0 and not singular and mask.optionals[mask.move(incr - 1)[0]],
             ]
         ):
@@ -503,9 +538,9 @@ class Parser:
         # Record the pos and rep params obtained by comparison in the mask pair
         # If another compound is embedded,
         # annul the parameters of the target mask and the downward masks
-        self.masker.reset_masks(other_mask)
+        self.masker.reset_masks(other_mask, self.buffer.mapping.cur_depth)
         if target_mask.rep < comp[1]:
-            self.masker.reset_masks(target_mask)
+            self.masker.reset_masks(target_mask, self.buffer.mapping.cur_depth)
         target_mask.pos, target_mask.rep = comp
         target_mask.active = True
         return
@@ -514,10 +549,10 @@ class Parser:
         # Collects stances equal to the given one up to d-th rep
         # Returns a dict of dicts (reps before d -> d-th rep) of indices
         matches = {}
-        for i, st in enumerate(self.buffer.mapping.stances):
-            keymask = st[0][: len(stance)]
-            prev_reps = "".join([str(s) for s in st[1][:d]])
-            drep = st[1][d]
+        for i, e in enumerate(self.buffer.mapping.elems):
+            keymask = e.stance.pos[: len(stance)]
+            prev_reps = "".join([str(s) for s in e.stance.rep[:d]])
+            drep = e.stance.rep[d]
             if keymask == stance:
                 if prev_reps not in matches:
                     matches[prev_reps] = {drep: [i]}
@@ -528,18 +563,22 @@ class Parser:
 
         return matches
 
-    def fit_stance(self, stance: Stance, cand: str, term_only: bool = False) -> bool:
-        # Sets the given stance to the masks if it is valid
-        for n in range(len(stance[0])):
-            if term_only and n != len(stance[0]) - 1:
+    def fit_element(self, e: Element, term_only: bool = False) -> bool:
+        # Attempts to record the element if it is valid
+        for n in range(len(e.stance.pos)):
+            depth = self.buffer.mapping.cur_depth
+            if term_only and n != len(e.stance.pos) - 1:
                 continue
-            part = tuple([stance[0][:n], stance[1][:n]])
-            masks = self.masker.get_masks(part, get_pair=True)
+            part_stance = e.stance.copy(n)
+            masks = self.masker.get_masks(part_stance, depth, get_pair=True)
             split = self.grules.splits[n]
-            comp = self.compare_with_mask(cand, masks[stance[0][n]], split)
+            comp = self.compare_with_mask(e.content, masks[e.stance.pos[n]], split)
             if comp:
-                self.set_position(masks[stance[0][n]], masks[1 - stance[0][n]], comp)
+                self.set_position(
+                    masks[e.stance.pos[n]], masks[1 - e.stance.pos[n]], comp
+                )
             else:
+                print(f"Failed to fit {e} to {masks}")
                 return False
         return True
 
@@ -547,7 +586,7 @@ class Parser:
         # Checks how many vacant terminal slots exist opposite to the given one
         # along the given dichotomy
         cnt = 0
-        for st in self.buffer.mapping.stances:
-            if st[0] == stance[0] and st[1][:-1] == stance[1][:-1]:
+        for e in self.buffer.mapping.elems:
+            if e.stance.pos == stance.pos and e.stance.rep[:-1] == stance.rep[:-1]:
                 cnt += 1
         return cnt
