@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 @dataclass
 class Alphabet:
     content: Any
+    wildcards: Any
     separators: Any
     breakers: Any
     embedders: Any
@@ -14,6 +15,7 @@ class Alphabet:
 @dataclass
 class GeneralRules:
     struct: Any
+    heads: Any
     rets: Any
     skips: Any
     splits: Any

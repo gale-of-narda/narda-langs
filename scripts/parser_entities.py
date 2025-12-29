@@ -12,10 +12,12 @@ class Mask:
     allow for several types of characters rather than one.
     """
 
-    def __init__(self, premask: str, rank: int = 0, num: int = 0) -> None:
-        self.rank, self.num = rank, num
-        self.key = self._compute_key()
+    def __init__(
+        self, premask: str, rank: int = 0, num: int = 0, depth: int = 0
+    ) -> None:
         self.literals, self.optionals = self._decode(premask)
+        self.rank, self.num, self.depth = rank, num, depth
+        self.key = self._compute_key()
         self.rev = None
         self.lemb = None
         self.demb = None
@@ -23,6 +25,13 @@ class Mask:
         self.rep = 0
         self.active = False
         return
+
+    @property
+    def demb_ban(self):
+        if self.demb is None or self.demb == -1:
+            return False
+        else:
+            return self.demb < self.depth
 
     def __repr__(self) -> str:
         out = ""
@@ -97,16 +106,19 @@ class Element:
     of a certain level.
     """
 
-    def __init__(self, content, stance: Stance, level: int) -> None:
-        self.content: str | List[Element] = content
+    def __init__(
+        self, content: str | List[Element], stance: Stance, level: int
+    ) -> None:
+        self.content = content
         self.stance = stance
         self.level = level
         self.rep: str = str()
-        self.head = self._set_head()
+        self.complex: bool = isinstance(self.content, List)
+        self.head = self
         return
 
     def __repr__(self) -> str:
-        if isinstance(self.content, List):
+        if self.complex:
             return repr(self.head)
         else:
             return self.content
@@ -114,11 +126,13 @@ class Element:
     def __str__(self) -> str:
         return str(repr(self))
 
-    def _set_head(self) -> Element:
-        if isinstance(self.content, List):
-            return self.content[0]
-        else:
-            return self
+    def set_head(self, num: int) -> None:
+        for e in self.content:
+            if int("".join([str(p) for p in e.stance.pos]), 2) == num:
+                self.head = e
+                return
+        print([c.stance for c in self.content])
+        raise Exception(f"Couldn't find head at node {num}")
 
 
 class Mapping:
@@ -129,17 +143,21 @@ class Mapping:
 
     def __init__(self, level: int) -> None:
         self.level = level
+        self.heads: List[int] = []
         self.elems: List[Element] = []
         self.cur_depth: int = 0
+        self.breaks: int = 0
         self._cursor = self.elems
         self._holder = None
         return
 
     def record_element(self, e: Element) -> None:
+        # Adds an element to the current iterator
         self._cursor.append(e)
         return
 
     def push(self) -> None:
+        # Increases depth by one, adds a list and moves cursor into it
         self.cur_depth += 1
         self._cursor.append([])
         self._holder = self._cursor
@@ -147,11 +165,17 @@ class Mapping:
         return
 
     def pop(self) -> None:
+        # Decreases depth by one, collapses the current list into an element
         if self.cur_depth == 0:
-            raise Exception("Tried to set a negative depth")
+            print("Tried to set a negative depth")
+            return
         self.cur_depth -= 1
         self._cursor = self._holder
         self._cursor[-1] = Element(self._cursor[-1], Stance(), self.level)
+        print(self.cur_depth)
+        head = self.heads[min(self.cur_depth + 1, len(self.heads) - 1)]
+        self._cursor[-1].set_head(head)
+        self._cursor[-1].stance.depth = self.cur_depth
         return
 
 
@@ -256,8 +280,10 @@ class Tree:
         st = prefix + arrow + "─" + repr(node) + "\n"
 
         for ch in node.children:
+            # if ch.content:
             st += self._draw(ch, depth + 1)
         for cd in node.compounds:
+            # if cd.content:
             st += self._draw(cd, depth, "⤷", top=True)
         for cx in node.complexes:
             st += prefix + "  " + "⤷─" + repr(cx) + "\n"
@@ -265,7 +291,7 @@ class Tree:
 
         return st
 
-    def _get_subtree(self, target: Optional[int]) -> Tree:
+    def _get_subtree(self, target: Optional[int] = None) -> Tree:
         # Creates a structural copy of the tree and returns either that copy
         # or its node of the given number
         struct = self.struct
