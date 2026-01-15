@@ -39,12 +39,41 @@ class Buffer:
 
 
 @dataclass
+class Dichotomy:
+    nb: bool
+    cursor: Optional[int] = None
+
+    @property
+    def rev(self) -> bool:
+        return bool(min(self.left.rev, self.right.rev))
+
+    @property
+    def masks(self) -> List:
+        return [self.left, self.right] if not self.rev else [self.right, self.left]
+    
+    def __repr__(self) -> str:
+        try:
+            return f"{repr(self.masks[0])}—{repr(self.masks[1])}"
+        except AttributeError:
+            return "(empty dichotomy)"
+
+    def set_masks(self, masks: List) -> None:
+        self.left = masks[0]
+        self.right = masks[1]
+        return
+
+    def switch(self) -> int:
+        self.cursor = 1 - self.cursor if self.cursor else 0
+        return
+
+
+@dataclass
 class Stance:
     pos: List[int] = field(default_factory=lambda: [])
     rep: List[int] = field(default_factory=lambda: [])
     depth: int = 0
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         pos = "".join([str(p) for p in self.pos])
         rep = "".join([str(r) for r in self.rep])
         return f"[{pos}|{rep}|{self.depth}]"

@@ -13,14 +13,19 @@ def _():
 
 @app.cell
 def _(Parser):
-    input_string = "ránu-sàn"
+    input_string = "ra"
     parser = Parser(level=0)
     parser.parse(input_string)
     print([e.stance for e in parser.buffer.mapping.elems])
     #for rank in parser.masker.masks[0]:
     #    for mask_pair in rank:
     #        for mask in mask_pair:
-    #            print(mask, mask.key, mask.demb)
+    #            print(mask, mask.key, mask.rep)
+    return
+
+
+@app.cell
+def _():
     return
 
 

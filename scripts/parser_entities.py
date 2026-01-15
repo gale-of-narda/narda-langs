@@ -131,7 +131,6 @@ class Element:
             if int("".join([str(p) for p in e.stance.pos]), 2) == num:
                 self.head = e
                 return
-        print([c.stance for c in self.content])
         raise Exception(f"Couldn't find head at node {num}")
 
 
@@ -147,21 +146,21 @@ class Mapping:
         self.elems: List[Element] = []
         self.cur_depth: int = 0
         self.breaks: int = 0
-        self._cursor = self.elems
-        self._holder = None
+        self.cursor = self.elems
+        self.holder = None
         return
 
     def record_element(self, e: Element) -> None:
         # Adds an element to the current iterator
-        self._cursor.append(e)
+        self.cursor.append(e)
         return
 
     def push(self) -> None:
         # Increases depth by one, adds a list and moves cursor into it
         self.cur_depth += 1
-        self._cursor.append([])
-        self._holder = self._cursor
-        self._cursor = self._cursor[-1]
+        self.cursor.append([])
+        self.holder = self.cursor
+        self.cursor = self.cursor[-1]
         return
 
     def pop(self) -> None:
@@ -170,12 +169,11 @@ class Mapping:
             print("Tried to set a negative depth")
             return
         self.cur_depth -= 1
-        self._cursor = self._holder
-        self._cursor[-1] = Element(self._cursor[-1], Stance(), self.level)
-        print(self.cur_depth)
+        self.cursor = self.holder
+        self.cursor[-1] = Element(self.cursor[-1], Stance(), self.level)
         head = self.heads[min(self.cur_depth + 1, len(self.heads) - 1)]
-        self._cursor[-1].set_head(head)
-        self._cursor[-1].stance.depth = self.cur_depth
+        self.cursor[-1].set_head(head)
+        self.cursor[-1].stance.depth = self.cur_depth
         return
 
 

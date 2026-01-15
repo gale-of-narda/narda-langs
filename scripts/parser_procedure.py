@@ -6,7 +6,7 @@ from math import log
 
 from scripts.parser_entities import Tree, Mask, Mapping, Element
 from scripts.parser_dataclasses import Alphabet, GeneralRules, SpecialRules
-from scripts.parser_dataclasses import Buffer, Stance
+from scripts.parser_dataclasses import Buffer, Stance, Dichotomy
 
 
 class Loader:
@@ -129,11 +129,12 @@ class Masker:
         # Creates pairs of masks for each dichotomy
         i = 0
         dichs = [r == len(range(s)) - 1 for s in self.struct for r in range(s)]
+        nbs = [r != 0 for s in self.struct for r in range(s)]
         ranks = [(i := i + 1) if d else None for d in dichs]
 
         masks = []
         for r, rank in enumerate(ranks[::-1]):
-            mask_pairs = []
+            dichs = []
             perm_rank = self.perms[r]
 
             for p in range(0, len(perm_rank), 2):
@@ -143,28 +144,29 @@ class Masker:
                 right_mask.rev = self.revs[r][p : p + 2][1]
                 left_mask.demb = self.demb[r][p : p + 2][0]
                 right_mask.demb = self.demb[r][p : p + 2][1]
+
                 if rank:
                     left_mask.lemb = self.lemb[rank][p : p + 2][0]
                     right_mask.lemb = self.lemb[rank][p : p + 2][1]
-                mask_pairs.append([left_mask, right_mask])
 
-            masks.append(mask_pairs)
+                dich = Dichotomy(nb=nbs[r])
+                dich.set_masks([left_mask, right_mask])
+                dichs.append(dich)
+
+            masks.append(dichs)
 
         # Create non-existing depths of masks
         for d in range(depth - len(self.masks) + 1):
             self.masks.append(masks[::-1])
             for rank in self.masks[depth - d]:
-                for mask_pair in rank:
-                    for mask in mask_pair:
+                for dich in rank:
+                    for mask in dich.masks:
                         mask.depth = depth - d
-
-        # self.perms = self.perms[::-1]
-        # self.revs = self.revs[::-1]
 
         return
 
     def get_masks(
-        self, stance: Stance, depth: int, get_pair: bool = False
+        self, stance: Stance, depth: int, get_dich: bool = False
     ) -> Mask | Tuple[Mask]:
         """
         Returns the mask at the address defined by the stance.
@@ -176,27 +178,35 @@ class Masker:
         masks_at_depth = self.masks[depth]
 
         if len(stance.pos) == 0:
-            return masks_at_depth[0][0] if get_pair else None
+            return masks_at_depth[0][0] if get_dich else None
         else:
             key = "".join(str(s) for s in stance.pos)
-            pairs = [mp for r in masks_at_depth for mp in r]
-            for pair in pairs:
-                if get_pair:
-                    if pair[0].key[:-1] == key and pair[1].key[:-1] == key:
-                        return pair
+            dichs = [mp for r in masks_at_depth for mp in r]
+            for dich in dichs:
+                keys = dich.masks[0].key[:-1], dich.masks[1].key[:-1]
+                if get_dich:
+                    if all([key == k for k in keys]):
+                        return dich
                 else:
-                    if pair[0].key[:-1] == key[:-1] and pair[1].key[:-1] == key[:-1]:
-                        return pair[stance.pos[-1]]
+                    if all([key[:-1] == k for k in keys]):
+                        return dich.masks[stance.pos[-1]]
             raise Exception(f"Couldn't find masks with stance {stance}")
 
-    def reset_masks(self, target: Mask, depth: int) -> None:
-        masks = [m for r in self.masks[depth] for mp in r for m in mp]
-        for mask in masks:
-            if mask.key[: len(target.key)] == target.key:
-                if mask.active:
-                    mask.pos = len(mask.literals) - 1
-                    mask.rep = 0
-                    mask.active = False
+    def reset_masks(
+        self,
+        target: Mask,
+        depth: int,
+        rep: Optional[int] = None,
+        full_reset: bool = False,
+    ) -> None:
+        dichs = [dich for rank in self.masks[depth] for dich in rank]
+        for dich in dichs:
+            for mask in dich.masks:
+                if mask.key[: len(target.key)] == target.key:
+                    if mask.active or full_reset:
+                        mask.pos = len(mask.literals) - 1 if not full_reset else 0
+                        mask.rep = 0 if rep is None else rep
+                        mask.active = False
         return
 
 
@@ -275,7 +285,7 @@ class Parser:
 
         return False
 
-    def produce_mapping(self, prep_string: str) -> Mapping | bool:
+    def produce_mapping(self, prep_string: str) -> bool:
         # Produces the dichotomic stances for the split items of prep_string
         sep = self.alphabet.separators
         pusher, popper = self.alphabet.embedders
@@ -286,9 +296,9 @@ class Parser:
             print(f"Working with '{string}'")
 
             if string == popper and self.buffer.mapping.cur_depth > 0:
-                if self.secondary_pipe(mapping._cursor, mapping.cur_depth):
+                if self.secondary_pipe(mapping.cursor, mapping.cur_depth):
                     mapping.pop()
-                    elem = mapping._cursor[-1]
+                    elem = mapping.cursor[-1]
                     print(f"=> Depth decreased to {mapping.cur_depth}")
                 else:
                     return False
@@ -315,7 +325,7 @@ class Parser:
             if n == len(string_iterator) - 1 and self.buffer.mapping.cur_depth > 0:
                 string_iterator.append(popper)
 
-        return mapping
+        return True
 
     def secondary_pipe(
         self, elems: Optional[List[Element]] = None, depth: int = 0
@@ -324,7 +334,7 @@ class Parser:
         # using special rules
         pipe = [
             # Shift the non-binary mappings to the right to fill empty slots
-            (self.shift_nonbinary_mappings, "Failed to make a shift"),
+            # (self.shift_nonbinary_mappings, "Failed to make a shift"),
             # Fill empty terminal siblings of existing mappings with neutral strings
             (self.fill_empty_terminals, "Failed to fill an empty terminal"),
             # Apply special rules to validate the final mapping
@@ -338,55 +348,63 @@ class Parser:
 
         return True
 
-    def shift_nonbinary_mappings(self, elems: List[Element], depth: int) -> bool:
-        # For non-binary dichotomies, shift the mappings from the first to the second
-        # mask (taking rev into account) if the second mask has no mappings
+    def shift_nonbinary_mappings(
+        self, elems: List[Element], masks: List[Mask], dich: int, depth: int
+    ) -> bool:
+        # For the given mask pair, shift the mappings from first to second mask
+        # (taking rev into account) if the latter has an empty slot
         # Equivalent mappings are shifted together or not at all,
-        # compounds in LIFO order, and only if they fit (given lembs and perms)
+        # compounds from closest to farthest to the target mask
+        # and only if they fit (given lembs and perms)
 
-        # Determine which dichotomies are non-binary
-        nbs = [r != 0 for s in self.grules.struct for r in range(s)]
-        for dich, nb in enumerate(nbs):
-            if not nb:
-                continue
+        # Get keys for both masks
+        rev = min(m.rev for m in masks)
+        mask_from, mask_to = masks if not rev else masks[::-1]
+        stance_from = [int(p) for p in mask_from.key]
+        stance_to = [int(p) for p in mask_to.key]
 
-            # Process each non-binary mask pair at the current depth
-            for mask_pair in self.masker.masks[depth][dich]:
-                # Get keys for both masks
-                keys = [[int(p) for p in mask.key] for mask in mask_pair]
-                base_stance = Stance()
-                base_stance.pos = keys[0][:-1]
-                base_mask = self.masker.get_masks(base_stance, depth)
-                base_rev = bool(base_mask.rev) if base_mask else 0
-                min_rev = min([mask.rev for mask in mask_pair])
-                fkey, skey = keys if not base_rev else keys[::-1]
-                lemb = mask_pair[0 if not base_rev else 1].lemb
+        # Resetting the position to activate the target mask
+        cur_comp = tuple([mask_to.pos, mask_to.rep])
+        self.set_position(mask_to, mask_from, cur_comp, depth)
 
-                # Find indexes of corresponding mappings
-                fmatches = self.get_matching_stances(elems, fkey, dich)
-                smatches = self.get_matching_stances(elems, skey, dich)
+        # Find indexes of stances to shift
+        matches = {}
+        for i, e in enumerate(elems):
+            if e.stance.pos[: len(stance_from)] == stance_from:
+                slot = e.stance.rep[dich]
+                if slot not in matches:
+                    matches[slot] = [i]
+                else:
+                    matches[slot].append(i)
 
-                # Discard mappings present in both masks
-                matches = {m: fmatches[m] for m in fmatches if m not in smatches}
+        # Perform the shift slot by slot
+        slots_shifted = -1
+        num = min(mask_to.lemb + 1, len(matches))
+        for n, slot in enumerate(reversed(matches) if not rev else matches):
+            slot_in_process = False
+            if num > 0:
+                for i in matches[slot]:
+                    old_stance = str(elems[i].stance)
+                    elems[i].stance.pos[dich] = stance_to[-1]
+                    elems[i].stance.rep[dich] = max(mask_to.lemb - n, 0)
+                    new_stance = str(elems[i].stance)
+                    print(f"-> Shifting {old_stance} to {new_stance}")
+                    fit = self.fit_element(elems[i], depth, dich)
+                    if fit:
+                        slot_in_process = True
+                    else:
+                        return not slot_in_process
+                num += -1
+            slots_shifted += 1
 
-                # Shift the remaining mappings, but only the last lemb+1 compounds
-                for prev_reps in matches:
-                    num = min(lemb + 1, len(matches[prev_reps]))
-                    for n, drep in enumerate(reversed(matches[prev_reps])):
-                        if num > (0 if not min_rev else 1):
-                            for i in matches[prev_reps][drep]:
-                                stance = elems[i].stance
-                                print(f"-> Shifting {stance}")
-                                stance.pos[dich] = skey[-1]
-                                stance.rep[dich] = max(lemb - n - 1, 0)
-                                fit = self.fit_element(elems[i], depth)
-                                if not fit:
-                                    return False
-                            num += -1
+        new_rep = max(mask_from.rep - slots_shifted, 0)
+        self.masker.reset_masks(mask_from, depth, new_rep, full_reset=True)
+
         return True
 
     def fill_empty_terminals(self, elems: List[Element], depth: int) -> bool:
         # Adds neutral strings to mirror those with no siblings at terminal nodes
+        return True
         if self.level != 0:
             return True
 
@@ -434,6 +452,7 @@ class Parser:
 
     def validate_mapping(self, elems: List[Element], depth: int) -> bool:
         # Check that every mapping complies with terminal permissions
+        return True
         if self.level != 0:
             return True
 
@@ -449,7 +468,6 @@ class Parser:
                 else perm_depth[::-1][e.stance.rep[-1]]
             )
             if e.head.content not in perm and rep not in perm:
-                #print(perms, perm_depth, perm)
                 print(f"No permission for '{e.head}' of class '{rep}' at {e.stance}")
                 return False
 
@@ -498,19 +516,23 @@ class Parser:
 
         return e.stance
 
-    def decide_dichotomy(self, e: Element, d: int) -> Tuple(int, int) | bool:
+    def decide_dichotomy(
+        self, e: Element, d: int, forbid_shift: bool = False
+    ) -> Tuple(int, int) | bool:
         # Determine the position of the candidate with respect to the dichotomy
         # found at the given stance
-        rank = len(e.stance.pos)
-        ret = bool(self.grules.rets[rank])
-        skip = bool(self.grules.skips[rank])
-        split = bool(self.grules.splits[rank])
+        old_dich = len(e.stance.pos)
+        ret = bool(self.grules.rets[old_dich])
+        skip = bool(self.grules.skips[old_dich])
+        split = bool(self.grules.splits[old_dich])
+        nb = [r != 0 for s in self.grules.struct for r in range(s)][old_dich]
 
-        mask_pair = self.masker.get_masks(e.stance, d, get_pair=True)
+        # Which mask is the first/second depends on rev & binarity of the dichotomy
+        dich = self.masker.get_masks(e.stance, d, get_dich=True)
         base_mask = self.masker.get_masks(e.stance, d)
-        rev = bool(base_mask.rev) if base_mask else 0
-        # Which mask is the first/second depends on rev
-        masks = mask_pair[::-1] if rev else mask_pair
+        # rev = min(m.rev for m in mask_pair)
+        # rev = rev if not nb else not rev
+        rev = bool(base_mask.rev) if base_mask else False
 
         # Updating the breaker count if a breaker is encountered
         for i, br in enumerate(self.alphabet.breakers):
@@ -521,43 +543,52 @@ class Parser:
 
         # Skipping to the second mask if the breaker count is positive
         if self.buffer.mapping.breaks > 0:
-            self.masker.reset_masks(masks[0], d)
-            masks[1].active = True
+            self.masker.reset_masks(dich.masks[0], d)
+            dich.masks[1].active = True
             self.buffer.mapping.breaks += -1
-            print(f"-> Skipping {masks[0]}")
+            print(f"-> Skipping {dich.masks[0]}")
 
         # Conditions of fit for the 1st and 2nd masks
         conds = [
-            any([not masks[1].active, not ret]),
-            any([masks[0].active, not skip]),
+            any([not dich.masks[1].active, not ret]),
+            any([dich.masks[0].active, not skip]),
         ]
         # Results of fit for the masks: tuple(pos, rep)
         comps = [
-            self.compare_with_mask(e, masks[0], split),
-            self.compare_with_mask(e, masks[1], split),
+            self.compare_with_mask(e, dich.masks[0], split),
+            self.compare_with_mask(e, dich.masks[1], split),
         ]
 
         num_strings = ["first", "second"]
         revs = [int(rev), int(not rev)]
 
+        # If both masks are fitting, choose the first one unless
+        # it is the only one that increases rep
+        if conds[0] and comps[0] and conds[1] and comps[1]:
+            if comps[1][1] == dich.masks[1].rep and comps[0][1] > dich.masks[0].rep:
+                fit = 1
+            else:
+                fit = 0
         # First mask fitting (the second one wasn't fit OR ret is not forbidden)
-        if conds[0] and comps[0]:
+        elif conds[0] and comps[0]:
             fit = 0
         # Second mask fitting (the first one wasn't fit OR skip is not forbidden)
         elif conds[1] and comps[1]:
             fit = 1
-        # No fit
+        # Otherwise and if the dich is non-binary, perform a shift and try again
+        elif nb and not forbid_shift:
+            self.shift_nonbinary_mappings(self.buffer.mapping.cursor, dich, old_dich, d)
+            return self.decide_dichotomy(e, d, forbid_shift=True)
+        # If all fails
         else:
             return False
 
-        init_str = (
-            f"-> Fitting {e.head.content} to the {num_strings[fit]} mask {masks[fit]}"
-        )
-        self.set_position(masks[fit], masks[1 - fit], comps[fit], d)
-        fin_str = f"{init_str} → {masks[fit]}" if not split else init_str
+        init_str = f"-> Fitting {e.head.content} to the {num_strings[fit]} mask {dich.masks[fit]}"
+        self.set_position(dich.masks[fit], dich.masks[1 - fit], comps[fit], d)
+        fin_str = f"{init_str} → {dich.masks[fit]}" if not split else init_str
         print(fin_str)
 
-        return (revs[fit], masks[fit].rep)
+        return (revs[fit], dich.masks[fit].rep)
 
     def compare_with_mask(self, e: Element, mask: Mask, split: bool):
         # Check if the representation of the candidate string fits the given mask
@@ -610,38 +641,26 @@ class Parser:
         target_mask.active = True
         return
 
-    def get_matching_stances(
-        self, elems: List[Element], stance: Stance, rep: int
-    ) -> Dict[Dict[int]]:
-        # Collects stances of given depth equal to the given one up to the given rep
-        # Returns a dict of dicts (reps before the given -> given rep) of indices
-        matches = {}
-        for i, e in enumerate(elems):
-            keymask = e.stance.pos[: len(stance)]
-            prev_reps = "".join([str(s) for s in e.stance.rep[:rep]])
-            drep = e.stance.rep[rep]
-            if keymask == stance:
-                if prev_reps not in matches:
-                    matches[prev_reps] = {drep: [i]}
-                elif drep not in matches[prev_reps]:
-                    matches[prev_reps][drep] = [i]
-                else:
-                    matches[prev_reps][drep].append(i)
-
-        return matches
-
-    def fit_element(self, e: Element, depth: int, term_only: bool = False) -> bool:
+    def fit_element(
+        self,
+        e: Element,
+        depth: int,
+        dich: Optional[int] = None,
+        term_only: bool = False,
+    ) -> bool:
         # Attempts to record the element if it is valid
-        for n in range(len(e.stance.pos)):
-            if term_only and n != len(e.stance.pos) - 1:
+        for n, pos in enumerate(e.stance.pos):
+            if (term_only and n != len(e.stance.pos) - 1) or (
+                dich is not None and n < dich
+            ):
                 continue
             part_stance = e.stance.copy(n)
             split = self.grules.splits[n]
             masks = self.masker.get_masks(part_stance, depth, get_pair=True)
-            comp = self.compare_with_mask(e, masks[e.stance.pos[n]], split)
+            comp = self.compare_with_mask(e, masks[pos], split)
             if comp:
-                pos, rep = masks[e.stance.pos[n]], masks[1 - e.stance.pos[n]]
-                self.set_position(pos, rep, comp, depth)
+                target, other = masks[pos], masks[1 - pos]
+                self.set_position(target, other, comp, depth)
             else:
                 print(f"Failed to fit {e} to {masks}")
                 return False
