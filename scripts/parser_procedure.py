@@ -1,6 +1,6 @@
 import json
 
-from typing import Dict, Tuple, List, Optional
+from typing import Tuple, List, Optional
 from pathlib import Path
 from math import log
 
@@ -83,114 +83,104 @@ class Loader:
 class Masker:
     def __init__(self, grules: GeneralRules):
         self.struct = grules.struct
-        self.term_perms = grules.perms
-        self.term_revs = grules.revs
-        self.term_dembs = grules.demb
-        self.lemb = grules.lemb
-        self.perms = []
-        self.revs = []
-        self.demb = []
+        self.lembs = grules.lemb
+        self.dembs = [grules.demb]
+        self.perms = [grules.perms]
+        self.revs = [grules.revs]
         self.masks = []
         self._unravel_term_params()
         self.construct_masks()
         return
 
     def _unravel_term_params(self) -> None:
-        # Creates perms and revs per each node based on terminal node parameters
-        perms = self.term_perms
-        revs = self.term_revs
-        dembs = self.term_dembs
-        self.perms, self.revs, self.demb = [perms], [revs], [dembs]
-
-        for r in range(int(log(len(perms)))):
-            perms, revs, dembs = self._split(perms, revs, dembs, r)
-            self.perms.append(perms)
-            self.revs.append(revs)
-            self.demb.append(dembs)
-
+        # Creates perms, revs, dembs for each mask based on per-terminal grules
+        for r in range(int(log(len(self.perms[0])))):
+            split_perms, split_revs, split_dembs = [], [], []
+            for i in range(0, len(self.perms[-1]), 2):
+                rev = min(self.revs[-1][i : i + 2]) if r < 1 else 0
+                demb = max(self.dembs[-1][i : i + 2])
+                perm = self.perms[-1][i : i + 2]
+                split_perms.append("".join(perm[::-1] if rev else perm))
+                split_revs.append(rev)
+                split_dembs.append(demb)
+            self.perms.append(split_perms)
+            self.revs.append(split_revs)
+            self.dembs.append(split_dembs)
         return
-
-    def _split(
-        self, perms: List[str], revs: List[int], dembs: List[int], r: int
-    ) -> List[List[str]]:
-        # Splits the perms into n chunks, reversing the order according to revs
-        split_perms, split_revs, split_dembs = [], [], []
-        for i in range(0, len(perms), 2):
-            rev = min(revs[i : i + 2]) if r < 1 else 0
-            demb = max(dembs[i : i + 2])
-            perm = perms[i : i + 2]
-            split_perms.append("".join(perm[::-1] if rev else perm))
-            split_revs.append(rev)
-            split_dembs.append(demb)
-
-        return split_perms, split_revs, split_dembs
 
     def construct_masks(self, depth: int = 0) -> None:
         # Creates pairs of masks for each dichotomy
-        i = 0
-        dichs = [r == len(range(s)) - 1 for s in self.struct for r in range(s)]
+        # Define which dichotomies are last on rank & which are non-binary
+        ln = sum(self.struct)
+        lds = [r == len(range(s)) - 1 for s in self.struct for r in range(s)]
         nbs = [r != 0 for s in self.struct for r in range(s)]
-        ranks = [(i := i + 1) if d else None for d in dichs]
 
-        masks = []
-        for r, rank in enumerate(ranks[::-1]):
-            dichs = []
-            perm_rank = self.perms[r]
-
-            for p in range(0, len(perm_rank), 2):
-                left_mask = Mask(perm_rank[p : p + 2][0], len(ranks) - r, p)
-                right_mask = Mask(perm_rank[p : p + 2][1], len(ranks) - r, p + 1)
-                left_mask.rev = self.revs[r][p : p + 2][0]
-                right_mask.rev = self.revs[r][p : p + 2][1]
-                left_mask.demb = self.demb[r][p : p + 2][0]
-                right_mask.demb = self.demb[r][p : p + 2][1]
-
-                if rank:
-                    left_mask.lemb = self.lemb[rank][p : p + 2][0]
-                    right_mask.lemb = self.lemb[rank][p : p + 2][1]
-
-                dich = Dichotomy(nb=nbs[r])
-                dich.set_masks([left_mask, right_mask])
-                dichs.append(dich)
-
-            masks.append(dichs)
-
-        # Create non-existing depths of masks
+        # Create the non-existing depths of masks
         for d in range(depth - len(self.masks) + 1):
-            self.masks.append(masks[::-1])
-            for rank in self.masks[depth - d]:
-                for dich in rank:
-                    for mask in dich.masks:
-                        mask.depth = depth - d
+            ranks = []
+            for r in range(ln):
+                dichs = []
+                for p in range(0, len(self.perms[r]), 2):
+                    left_mask = Mask(self.perms[r][p : p + 2][0], ln - r, p)
+                    right_mask = Mask(self.perms[r][p : p + 2][1], ln - r, p + 1)
+                    left_mask.rev = self.revs[r][p : p + 2][0]
+                    right_mask.rev = self.revs[r][p : p + 2][1]
+                    left_mask.demb = self.dembs[r][p : p + 2][0]
+                    right_mask.demb = self.dembs[r][p : p + 2][1]
+                    # Compound embedding only for the last dichs on rank
+                    rlembs, rlds = self.lembs[::-1][r], lds[::-1][r]
+                    left_mask.lemb = rlembs[p : p + 2][0] if rlds else 0
+                    right_mask.lemb = rlembs[p : p + 2][1] if rlds else 0
+                    left_mask.depth = depth - d
+                    right_mask.depth = depth - d
+
+                    dich = Dichotomy(nb=nbs[r])
+                    dich.set_masks([left_mask, right_mask])
+                    dich.rev = min(self.revs[r][p : p + 2]) if r < 1 else 0
+                    dichs.append(dich)
+
+                ranks.append(dichs)
+
+            self.masks.append(ranks[::-1])
 
         return
 
-    def get_masks(
-        self, stance: Stance, depth: int, get_dich: bool = False
-    ) -> Mask | Tuple[Mask]:
+    def get_mask(self, stance: Stance, depth: int) -> Mask:
         """
         Returns the mask at the address defined by the stance.
-        If get_pair, returns the pair of masks into which the addressed mask splits.
         """
         if len(self.masks) < depth:
             self.construct_masks(depth)
 
-        masks_at_depth = self.masks[depth]
-
         if len(stance.pos) == 0:
-            return masks_at_depth[0][0] if get_dich else None
+            return None
         else:
             key = "".join(str(s) for s in stance.pos)
-            dichs = [mp for r in masks_at_depth for mp in r]
+            dichs = [mp for r in self.masks[depth] for mp in r]
             for dich in dichs:
                 keys = dich.masks[0].key[:-1], dich.masks[1].key[:-1]
-                if get_dich:
-                    if all([key == k for k in keys]):
-                        return dich
-                else:
-                    if all([key[:-1] == k for k in keys]):
-                        return dich.masks[stance.pos[-1]]
+                if all([key[:-1] == k for k in keys]):
+                    return dich.masks[stance.pos[-1]]
             raise Exception(f"Couldn't find masks with stance {stance}")
+
+    def get_dich(self, stance: Stance, depth: int) -> Dichotomy:
+        """
+        Returns the dichotomy at the address defined by the stance.
+        """
+        if len(self.masks) < depth:
+            self.construct_masks(depth)
+
+        if len(stance.pos) == 0:
+            return self.masks[depth][0][0]
+        else:
+            key = "".join(str(s) for s in stance.pos)
+            dichs = [mp for r in self.masks[depth] for mp in r]
+            for dich in dichs:
+                keys = dich.masks[0].key[:-1], dich.masks[1].key[:-1]
+                if all([key == k for k in keys]):
+                    return dich
+            raise Exception(f"Couldn't find dichotomy with stance {stance}")
+        return
 
     def reset_masks(
         self,
@@ -349,7 +339,12 @@ class Parser:
         return True
 
     def shift_nonbinary_mappings(
-        self, elems: List[Element], masks: List[Mask], dich: int, depth: int
+        self,
+        elems: List[Element],
+        dich: Dichotomy,
+        dich_num: int,
+        depth: int,
+        force: bool = False,
     ) -> bool:
         # For the given mask pair, shift the mappings from first to second mask
         # (taking rev into account) if the latter has an empty slot
@@ -358,10 +353,14 @@ class Parser:
         # and only if they fit (given lembs and perms)
 
         # Get keys for both masks
-        rev = min(m.rev for m in masks)
-        mask_from, mask_to = masks if not rev else masks[::-1]
+        rev = min(m.rev for m in dich.masks)
+        mask_from, mask_to = dich.masks if not rev else dich.masks[::-1]
         stance_from = [int(p) for p in mask_from.key]
         stance_to = [int(p) for p in mask_to.key]
+
+        # Skip the shift to a non-empty mask unless forced
+        if not force and (mask_to.pos is not None or mask_to.rep > 0):
+            return True
 
         # Resetting the position to activate the target mask
         cur_comp = tuple([mask_to.pos, mask_to.rep])
@@ -371,7 +370,7 @@ class Parser:
         matches = {}
         for i, e in enumerate(elems):
             if e.stance.pos[: len(stance_from)] == stance_from:
-                slot = e.stance.rep[dich]
+                slot = e.stance.rep[dich_num]
                 if slot not in matches:
                     matches[slot] = [i]
                 else:
@@ -385,11 +384,12 @@ class Parser:
             if num > 0:
                 for i in matches[slot]:
                     old_stance = str(elems[i].stance)
-                    elems[i].stance.pos[dich] = stance_to[-1]
-                    elems[i].stance.rep[dich] = max(mask_to.lemb - n, 0)
+                    new_rep = n if not rev else max(mask_to.lemb - n, 0)
+                    elems[i].stance.pos[dich_num] = stance_to[-1]
+                    elems[i].stance.rep[dich_num] = new_rep
                     new_stance = str(elems[i].stance)
                     print(f"-> Shifting {old_stance} to {new_stance}")
-                    fit = self.fit_element(elems[i], depth, dich)
+                    fit = self.fit_element(elems[i], depth, dich_num)
                     if fit:
                         slot_in_process = True
                     else:
@@ -404,7 +404,7 @@ class Parser:
 
     def fill_empty_terminals(self, elems: List[Element], depth: int) -> bool:
         # Adds neutral strings to mirror those with no siblings at terminal nodes
-        return True
+        # return True
         if self.level != 0:
             return True
 
@@ -424,7 +424,7 @@ class Parser:
             if cnt == 0:
                 mask_stance = Stance()
                 mask_stance.pos = op_stance.pos[:-1]
-                mask = self.masker.get_masks(mask_stance, depth)
+                mask = self.masker.get_mask(mask_stance, depth)
 
                 key = "".join([str(s) for s in op_stance.pos])
                 rev = bool(self.grules.revs[int(key, 2)])
@@ -452,7 +452,7 @@ class Parser:
 
     def validate_mapping(self, elems: List[Element], depth: int) -> bool:
         # Check that every mapping complies with terminal permissions
-        return True
+        # return True
         if self.level != 0:
             return True
 
@@ -517,19 +517,41 @@ class Parser:
         return e.stance
 
     def decide_dichotomy(
-        self, e: Element, d: int, forbid_shift: bool = False
+        self, e: Element, depth: int, forbid_shift: bool = False
     ) -> Tuple(int, int) | bool:
         # Determine the position of the candidate with respect to the dichotomy
         # found at the given stance
-        old_dich = len(e.stance.pos)
-        ret = bool(self.grules.rets[old_dich])
-        skip = bool(self.grules.skips[old_dich])
-        split = bool(self.grules.splits[old_dich])
-        nb = [r != 0 for s in self.grules.struct for r in range(s)][old_dich]
+
+        def attempt_shift(
+            self, dich: Dichotomy, dich_num: int, rev: int, fit: int
+        ) -> bool:
+            # For non-binary children dichotomies, check if fit matches the previous one
+            # If not, perform the non-binary shift for the dichotomy of the previous fit
+            if dich.masks[1 - rev].active:
+                prev_fit = 1
+            elif dich.masks[rev].active:
+                prev_fit = 0
+            else:
+                prev_fit = None
+            if prev_fit is not None and prev_fit != fit:
+                shift_stance = Stance()
+                shift_stance.pos = [int(p) for p in dich.masks[prev_fit].key]
+                shift_dich = self.masker.get_dich(shift_stance, depth)
+                shift = self.shift_nonbinary_mappings(
+                    self.buffer.mapping.cursor, shift_dich, dich_num + 1, depth
+                )
+                return shift
+            return True
+
+        dich_num = len(e.stance.pos)
+        ret = bool(self.grules.rets[dich_num])
+        skip = bool(self.grules.skips[dich_num])
+        split = bool(self.grules.splits[dich_num])
+        nbs = [r != 0 for s in self.grules.struct for r in range(s)]
 
         # Which mask is the first/second depends on rev & binarity of the dichotomy
-        dich = self.masker.get_masks(e.stance, d, get_dich=True)
-        base_mask = self.masker.get_masks(e.stance, d)
+        dich = self.masker.get_dich(e.stance, depth)
+        base_mask = self.masker.get_mask(e.stance, depth)
         # rev = min(m.rev for m in mask_pair)
         # rev = rev if not nb else not rev
         rev = bool(base_mask.rev) if base_mask else False
@@ -538,14 +560,18 @@ class Parser:
         for i, br in enumerate(self.alphabet.breakers):
             if e.head.content in br:
                 print("=> Breaker recorded")
+                if dich_num + 1 < len(nbs) and nbs[dich_num + 1]:
+                    shift = attempt_shift(self, dich, dich_num, rev, 1)
+                    if shift is False:
+                        return False
+                self.masker.reset_masks(dich.masks[0], depth)
                 self.buffer.mapping.breaks += i + 1
                 return True
 
         # Skipping to the second mask if the breaker count is positive
         if self.buffer.mapping.breaks > 0:
-            self.masker.reset_masks(dich.masks[0], d)
-            dich.masks[1].active = True
             self.buffer.mapping.breaks += -1
+            dich.masks[1].active = True
             print(f"-> Skipping {dich.masks[0]}")
 
         # Conditions of fit for the 1st and 2nd masks
@@ -576,15 +602,21 @@ class Parser:
         elif conds[1] and comps[1]:
             fit = 1
         # Otherwise and if the dich is non-binary, perform a shift and try again
-        elif nb and not forbid_shift:
-            self.shift_nonbinary_mappings(self.buffer.mapping.cursor, dich, old_dich, d)
-            return self.decide_dichotomy(e, d, forbid_shift=True)
+        elif nbs[dich_num] and not forbid_shift:
+            self.shift_nonbinary_mappings(
+                self.buffer.mapping.cursor, dich, dich_num, depth, force=True
+            )
+            return self.decide_dichotomy(e, depth, forbid_shift=True)
         # If all fails
         else:
             return False
 
+        if dich_num + 1 < len(nbs) and nbs[dich_num + 1]:
+            shift = attempt_shift(self, dich, dich_num, rev, fit)
+            if shift is False:
+                return False
         init_str = f"-> Fitting {e.head.content} to the {num_strings[fit]} mask {dich.masks[fit]}"
-        self.set_position(dich.masks[fit], dich.masks[1 - fit], comps[fit], d)
+        self.set_position(dich.masks[fit], dich.masks[1 - fit], comps[fit], depth)
         fin_str = f"{init_str} → {dich.masks[fit]}" if not split else init_str
         print(fin_str)
 
@@ -615,7 +647,7 @@ class Parser:
                 incr == 0 and not (singular and mask.active),
                 # Next string, if the mask is singular or was already fit
                 incr == 1 and (singular or mask.active),
-                # Following strings, unless a non-optional string is getting skipped
+                # Next string(s), unless a non-optional string is getting skipped
                 incr > 0 and not singular and mask.optionals[mask.move(incr - 1)[0]],
             ]
         ):
@@ -645,23 +677,24 @@ class Parser:
         self,
         e: Element,
         depth: int,
-        dich: Optional[int] = None,
+        dich_num: Optional[int] = None,
         term_only: bool = False,
     ) -> bool:
         # Attempts to record the element if it is valid
         for n, pos in enumerate(e.stance.pos):
             if (term_only and n != len(e.stance.pos) - 1) or (
-                dich is not None and n < dich
+                dich_num is not None and n < dich_num
             ):
                 continue
             part_stance = e.stance.copy(n)
             split = self.grules.splits[n]
-            masks = self.masker.get_masks(part_stance, depth, get_pair=True)
-            comp = self.compare_with_mask(e, masks[pos], split)
+            dich = self.masker.get_dich(part_stance, depth)
+            mask_cur = pos if not dich.rev else 1 - pos
+            comp = self.compare_with_mask(e, dich.masks[mask_cur], split)
             if comp:
-                target, other = masks[pos], masks[1 - pos]
+                target, other = dich.masks[mask_cur], dich.masks[1 - mask_cur]
                 self.set_position(target, other, comp, depth)
             else:
-                print(f"Failed to fit {e} to {masks}")
+                print(f"Failed to fit {e} to {dich.masks}")
                 return False
         return True

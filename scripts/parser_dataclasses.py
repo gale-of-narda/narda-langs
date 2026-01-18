@@ -40,13 +40,10 @@ class Buffer:
 
 @dataclass
 class Dichotomy:
-    nb: bool
+    nb: bool = False
+    rev: bool = False
     cursor: Optional[int] = None
-
-    @property
-    def rev(self) -> bool:
-        return bool(min(self.left.rev, self.right.rev))
-
+    
     @property
     def masks(self) -> List:
         return [self.left, self.right] if not self.rev else [self.right, self.left]
