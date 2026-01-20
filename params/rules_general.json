@@ -13,10 +13,10 @@
     ],
     "Skip restrictions": [
         [0, 0, 0],
-        [0, 1]
+        [1, 0]
     ],
     "Split-set fits": [
-        [1, 0, 0],
+        [0, 0, 1],
         [0, 0]
     ],
     "Reversals": [

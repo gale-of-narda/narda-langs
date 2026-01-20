@@ -18,6 +18,7 @@ class Mask:
         self.literals, self.optionals = self._decode(premask)
         self.rank, self.num, self.depth = rank, num, depth
         self.key = self._compute_key()
+        self.tneuts = None
         self.rev = None
         self.lemb = None
         self.demb = None
@@ -146,21 +147,21 @@ class Mapping:
         self.elems: List[Element] = []
         self.cur_depth: int = 0
         self.breaks: int = 0
-        self.cursor = self.elems
+        self.stack = self.elems
         self.holder = None
         return
 
     def record_element(self, e: Element) -> None:
         # Adds an element to the current iterator
-        self.cursor.append(e)
+        self.stack.append(e)
         return
 
     def push(self) -> None:
-        # Increases depth by one, adds a list and moves cursor into it
+        # Increases depth by one, adds a list and sets it to stack
         self.cur_depth += 1
-        self.cursor.append([])
-        self.holder = self.cursor
-        self.cursor = self.cursor[-1]
+        self.stack.append([])
+        self.holder = self.stack
+        self.stack = self.stack[-1]
         return
 
     def pop(self) -> None:
@@ -169,11 +170,11 @@ class Mapping:
             print("Tried to set a negative depth")
             return
         self.cur_depth -= 1
-        self.cursor = self.holder
-        self.cursor[-1] = Element(self.cursor[-1], Stance(), self.level)
+        self.stack = self.holder
+        self.stack[-1] = Element(self.stack[-1], Stance(), self.level)
         head = self.heads[min(self.cur_depth + 1, len(self.heads) - 1)]
-        self.cursor[-1].set_head(head)
-        self.cursor[-1].stance.depth = self.cur_depth
+        self.stack[-1].set_head(head)
+        self.stack[-1].stance.depth = self.cur_depth
         return
 
 
