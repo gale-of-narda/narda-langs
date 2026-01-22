@@ -13,7 +13,7 @@ def _():
 
 @app.cell
 def _(Parser):
-    input_string = "ra"
+    input_string = "́ıfaso"
     parser = Parser(level=0)
     parser.parse(input_string)
     print([e.stance for e in parser.buffer.mapping.elems])
@@ -21,12 +21,7 @@ def _(Parser):
     #    for dich in rank:
     #        print(dich, dich.preterminal, dich.terminal, dich.d)
     #        for mask in dich.masks:
-    #            print(mask, mask.key)
-    return
-
-
-@app.cell
-def _():
+    #            print(mask, mask.active)
     return
 
 

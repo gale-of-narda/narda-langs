@@ -1,13 +1,14 @@
-from typing import Tuple, List, Callable, Optional, Any
+from typing import Dict, Tuple, List, Callable, Optional, Any
 from collections import deque
 
 from scripts.parser_dataclasses import Stance
 
 
 class Mask:
-    """
-    A string to be used as the mask for the candidate character undergoing
-    dichotomy resolution during parsing. Consists of positions to be moved
+    """A string to be used as the mask for the candidate character undergoing
+    dichotomy resolution during parsing.
+
+    Consists of positions to be moved
     through with a cursor, where each position can be optional and/or
     allow for several types of characters rather than one.
     """
@@ -17,22 +18,13 @@ class Mask:
     ) -> None:
         self.literals, self.optionals = self._decode(premask)
         self.rank, self.num, self.depth = rank, num, depth
-        self.key = self._compute_key()
         self.tneuts = None
         self.rev = None
         self.lemb = None
         self.demb = None
         self.pos = None
         self.rep = 0
-        self.active = False
         return
-
-    @property
-    def demb_ban(self):
-        if self.demb is None or self.demb == -1:
-            return False
-        else:
-            return self.demb < self.depth
 
     def __repr__(self) -> str:
         out = ""
@@ -44,9 +36,27 @@ class Mask:
             out += opt + "".join(und)
         return f"'{out}'"
 
+    @property
+    def key(self) -> str:
+        """The key of the mask is the binary representation of its number."""
+        key = f"{self.num:b}".rjust(self.rank, "0")
+        return key
+
+    @property
+    def num_key(self) -> List[int]:
+        """Represents the dichotomy key as a list of integers."""
+        num_key = [int(k) for k in self.key]
+        return num_key
+
+    @property
+    def active(self) -> bool:
+        """A mask is active if its current position is not None."""
+        return self.pos is not None
+
     def _decode(self, premask: str) -> Tuple[List[List[str]], List[bool]]:
-        # Decodes the terminal permissions defined in the general rules
-        # to transform them into masks
+        """Decodes the terminal permissions defined in the general rules
+        to transform them into masks.
+        """
         optional, bracketed = False, False
         literals, optionals, group = [], [], []
 
@@ -71,13 +81,8 @@ class Mask:
 
         return literals, optionals
 
-    def _compute_key(self) -> List[int]:
-        key = f"{self.num:b}".rjust(self.rank, "0")
-        return key
-
     def move(self, step: int, inplace: bool = False) -> Tuple[int, int]:
-        """
-        Changes the position of the cursor in the mask for the given number
+        """Changes the position of the cursor in the mask for the given number
         of steps forward. Loops back and increases the repetition counter
         if the mask is cyclical.
         """
@@ -94,12 +99,20 @@ class Mask:
         else:
             return (new_pos, new_rep)
 
-    def match(self, rep: str, pos: int = 0, ignore_pos: bool = False) -> bool:
+    def match(self, rep_str: str, pos: int = 0, ignore_pos: bool = False) -> bool:
+        """Checks if the given string fits the element at the given position."""
         if ignore_pos:
-            return any([rep in m for pos in self.literals for m in pos])
+            return any([rep_str in m for pos in self.literals for m in pos])
         else:
             target_pos = self.move(pos)[0]
-            return any([rep in m for m in self.literals[target_pos]])
+            return any([rep_str in m for m in self.literals[target_pos]])
+
+    def subtract(self, pos_delta: int = 0, rep_delta: int = 0) -> None:
+        """Subtracts the given number of rep and pos, limited by zero."""
+        self.rep = max(self.rep - rep_delta, 0)
+        if self.pos:
+            self.pos = max(self.pos - pos_delta, 0)
+        return
 
 
 class Element:
@@ -127,7 +140,17 @@ class Element:
     def __str__(self) -> str:
         return str(repr(self))
 
+    @property
+    def num(self) -> int:
+        """Returns the number represented in the binary form by the stance."""
+        key = "".join([str(s) for s in self.stance.pos])
+        num = int(key, 2)
+        return num
+
     def set_head(self, num: int) -> None:
+        """Finds the content element with the given binary number
+        and sets it as the head.
+        """
         for e in self.content:
             if int("".join([str(p) for p in e.stance.pos]), 2) == num:
                 self.head = e
@@ -152,12 +175,12 @@ class Mapping:
         return
 
     def record_element(self, e: Element) -> None:
-        # Adds an element to the current iterator
+        """Adds an element to the current iterator."""
         self.stack.append(e)
         return
 
     def push(self) -> None:
-        # Increases depth by one, adds a list and sets it to stack
+        """Increases depth by one, adds a list and sets it to stack."""
         self.cur_depth += 1
         self.stack.append([])
         self.holder = self.stack
@@ -165,7 +188,7 @@ class Mapping:
         return
 
     def pop(self) -> None:
-        # Decreases depth by one, collapses the current list into an element
+        """Decreases depth by one and collapses the current list into an element."""
         if self.cur_depth == 0:
             print("Tried to set a negative depth")
             return
@@ -177,13 +200,34 @@ class Mapping:
         self.stack[-1].stance.depth = self.cur_depth
         return
 
+    def enumerate_elems(
+        self, num_key: List[int], d: Optional[int] = None
+    ) -> Dict | List[int]:
+        """Returns a list of stack indices of elements that conform
+        to the given key. If d is given, arranges them into a dict of lists
+        where the keys are the reps at d.
+        """
+        matches = {} if d else []
+        for i, e in enumerate(self.stack):
+            if e.stance.pos[: len(num_key)] == num_key:
+                if not d:
+                    matches.append(i)
+                else:
+                    slot = e.stance.rep[d]
+                    if slot not in matches:
+                        matches[slot] = [i]
+                    else:
+                        matches[slot].append(i)
+        return matches
+
 
 class Node:
-    """
-    A dichotomic tree node. Connected to its parent and children,
-    defined by rank, number, and key. Elements can be mapped to nodes
-    either directly as content or as a compound or complex elements
-    (each type of mapped element is stored separately).
+    """A dichotomic tree node. Connected to its parent and children,
+    defined by rank, number, and key.
+
+    Elements can be mapped to nodes either directly as content
+    or as a compound or complex elements (each type of mapped element
+    is stored separately).
     """
 
     def __init__(self, rank: int = 0) -> None:
@@ -204,9 +248,7 @@ class Node:
         return repr(self)
 
     def set_key(self, struct: List[int]):
-        """
-        Computes and saves the key of the node in a binary format.
-        """
+        """Computes and saves the key of the node in a binary format."""
         layer = 1
         layers = [1] + [(layer := layer * 2**x) for x in struct]
         d = self.num - sum(layers[: self.rank])
@@ -215,16 +257,13 @@ class Node:
         return
 
     def map_element(self, e: Element) -> None:
-        if isinstance(e, Element):
-            self.content.append(e)
-            return
-        raise Exception(f"Failed to map {e} to node {self}: not an element")
+        """Adds the given element to the content of the node."""
+        self.content.append(e)
+        return
 
 
 class Tree:
-    """
-    A dichotomic tree defined by the provided structure. Keeps its nodes inside.
-    """
+    """A dichotomic tree defined by the given structure."""
 
     def __init__(self, struct: List[int]) -> None:
         self.struct = struct
@@ -242,8 +281,9 @@ class Tree:
         return st
 
     def _populate(self, node: Node, i: int):
-        # Realizes the defined structure by creating the appropriate number of nodes
-        # and setting the parent-child connections between them.
+        """Realizes the defined structure by creating the appropriate number of nodes
+        and setting the parent-child connections between them.
+        """
         r = node.rank
         st = [0] + self.struct
         node.num = i
@@ -259,7 +299,7 @@ class Tree:
         return
 
     def _draw(self, node: Node, depth: int = 0, header: str = "└", top=False) -> str:
-        # Draws the structure of the tree to be printed.
+        """Draws the structure of the tree to be printed."""
         anc = node.parent
         ancs_last = []
         while anc is not None:
@@ -291,8 +331,9 @@ class Tree:
         return st
 
     def _get_subtree(self, target: Optional[int] = None) -> Tree:
-        # Creates a structural copy of the tree and returns either that copy
-        # or its node of the given number
+        """Creates a structural copy of the tree and returns either that copy
+        or its node of the given number.
+        """
         struct = self.struct
         subtree = Tree(struct)
         if target is None:
@@ -301,8 +342,7 @@ class Tree:
             return subtree.nodes[target]
 
     def traverse(self, subroot: Node, fun: Callable) -> Optional[Any]:
-        """
-        Applies the given function to the nodes of the subtree
+        """Applies the given function to the nodes of the subtree
         that originates from the given subroot.
         """
         queue = deque([subroot])
@@ -318,8 +358,7 @@ class Tree:
         return
 
     def embed_compound(self, node: Node) -> None:
-        """
-        Adds a copy of the subtree originating from the node of the given number
+        """Adds a copy of the subtree originating from the node of the given number
         to the mapped compounds list of the node.
         """
         new_node = self._get_subtree(node.num)
@@ -327,8 +366,7 @@ class Tree:
         return
 
     def embed_complex(self, node: Node) -> None:
-        """
-        Adds a copy of the subtree originating from the root of the tree
+        """Adds a copy of the subtree originating from the root of the tree
         to the mapped complexes list of the node.
         """
         new_tree = self._get_subtree()
@@ -336,6 +374,7 @@ class Tree:
         return
 
     def get_node(self, stance: Stance, ignore_comps: bool = False) -> Node:
+        """Returns the node addressed by the given stance."""
         cursor = 0
         node = self.root
         pos, comps = "".join([str(s) for s in stance.pos]), stance.rep
@@ -351,6 +390,10 @@ class Tree:
         return node
 
     def set_element(self, e: Element, set_all: bool = True) -> None:
+        """Maps the element to the node addressed by its stance.
+        If set_all is True, also maps it continuously to parent nodes
+        all the way up to the root.
+        """
         node = self.get_node(e.stance)
         if set_all:
             cursor = 0
