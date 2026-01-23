@@ -9,5 +9,6 @@
     "Wildcards": ["#", "@"],
     "Separators": ["", " "],
     "Breakers": [["́̀̂̌", "̄̃"], []],
-    "Embedders": [["-", "-"], [":", ";"]]
+    "Embedders": [["-", "-"], [":", ";"]],
+    "Breaking classes": ["V"]
 }

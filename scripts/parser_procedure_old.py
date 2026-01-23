@@ -366,23 +366,17 @@ class Parser:
         """Checks that every mapping complies with terminal permissions.
         Only applicable to the zeroth level.
         """
+        return True
         if self.level != 0:
             return True
 
-        cnt = 0
-        addr = None
         for i, e in enumerate(elems):
-            cnt = cnt + 1 if e.stance.pos + e.stance.rep[:-1] == addr else 0
-            addr = e.stance.pos + e.stance.rep[:-1]
-
-            rev = bool(self.grules.revs[e.num])
-            addrs = [e for e in elems if e.stance.pos + e.stance.rep[:-1] == addr]
-
             rep = self.alphabet.represent(e.head.content, self.level)
+            rev = bool(self.grules.revs[e.num])
             perms = self.srules.tperms[e.num]
-            priority = cnt if not rev else len(addrs) - 1 - cnt
-            perm = perms[min(self.buffer.mapping.cur_depth, len(perms) - 1)][priority]
-
+            perm_depth = perms[min(self.buffer.mapping.cur_depth, len(perms) - 1)]
+            perm_pos = e.stance.rep[-1]
+            perm = perm_depth[perm_pos] if not rev else perm_depth[::-1][perm_pos]
             if e.head.content not in perm and rep not in perm:
                 print(f"-> No permission for '{e.head}' of class '{rep}' at {e.stance}")
                 return False

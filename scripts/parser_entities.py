@@ -4,6 +4,162 @@ from collections import deque
 from scripts.parser_dataclasses import Stance
 
 
+class Mapping:
+    """A temporary structure holding elements as they are recorded.
+    When a list of elements of depth > 0 is fully recorded, it is
+    replaced by an element of a higher level.
+    """
+
+    def __init__(self, level: int) -> None:
+        self.level = level
+        self.heads: List[int] = []
+        self.elems: List[Element] = []
+        self.cur_depth: int = 0
+        self.breaks: int = 0
+        self.stack = self.elems
+        self.holder = None
+        return
+
+    def record_element(self, e: Element) -> None:
+        """Adds an element to the current iterator."""
+        self.stack.append(e)
+        return
+
+    def push(self) -> None:
+        """Increases depth by one, adds a list and sets it to stack."""
+        self.cur_depth += 1
+        self.stack.append([])
+        self.holder = self.stack
+        self.stack = self.stack[-1]
+        return
+
+    def pop(self) -> None:
+        """Decreases depth by one and collapses the current list into an element."""
+        if self.cur_depth == 0:
+            print("Tried to set a negative depth")
+            return
+        self.cur_depth -= 1
+        self.stack = self.holder
+        self.stack[-1] = Element(self.stack[-1], Stance(), self.level)
+        head = self.heads[min(self.cur_depth + 1, len(self.heads) - 1)]
+        self.stack[-1].set_head(head)
+        self.stack[-1].stance.depth = self.cur_depth
+        return
+
+    def enumerate_elems(
+        self, num_key: List[int], d: Optional[int] = None
+    ) -> Dict | List[int]:
+        """Returns a list of stack indices of elements that conform
+        to the given key. If d is given, arranges them into a dict of lists
+        where the keys are the reps before d.
+        """
+        matches = {} if d else []
+        for i, e in enumerate(self.stack):
+            if e.stance.pos[: len(num_key)] == num_key:
+                if not d:
+                    matches.append(i)
+                else:
+                    slot = "".join([str(r) for r in e.stance.rep[:d]])
+                    if slot not in matches:
+                        matches[slot] = [i]
+                    else:
+                        matches[slot].append(i)
+        return matches
+
+class Dichotomy:
+    """A combination of the mask pair, parameters guiding the choice between them,
+    and the pointer that records the last choice made.
+    """
+
+    def __init__(self, d: int = 0, nb: bool = False) -> None:
+        self.d: int = d
+        self.nb: bool = nb
+        self.terminal: bool = False
+        self.rev: Optional[bool] = None
+        self.ret: Optional[bool] = None
+        self.skip: Optional[bool] = None
+        self.split: Optional[bool] = None
+        self._pointer: Optional[int] = None
+        return
+
+    def __repr__(self) -> str:
+        try:
+            return f"{repr(self.masks[0])}—{repr(self.masks[1])}"
+        except AttributeError:
+            return "(empty dichotomy)"
+
+    @property
+    def masks(self) -> List:
+        """Returns the masks in the appropriate order."""
+        try:
+            return [self.left, self.right] if not self.rev else [self.right, self.left]
+        except AttributeError:
+            return []
+
+    @property
+    def pointer(self):
+        """Returns the number of mask was fitted last (possibly None)."""
+        return self._pointer
+
+    @pointer.setter
+    def pointer(self, value: int | None) -> None:
+        """Setting the pointer to the first or second mask activates it
+        and deactivates the other mask. Setting it to None deactivates both.
+
+        To activate a mask is to set its position to 0 while setting the position
+        of the opposite mask to None and incrementing its rep.
+
+        To deactivate a mask is to set its position to None.
+        """
+        if value in (0, 1):
+            if not self.masks[value].active:
+                self.masks[value].pos = 0
+            if self.masks[1 - value].active:
+                self.masks[1 - value].pos = None
+                self.masks[1 - value].rep += 1
+        elif value is None:
+            for mask in self.masks:
+                if mask.active:
+                    mask.pos = None
+        else:
+            raise ValueError(f"Tried to set an illegal pointer value {value}")
+
+        self._pointer = value
+
+        return
+
+    @property
+    def key(self) -> str:
+        """The key of the dichotomy is the common left substring of the keys
+        of its masks.
+        """
+        if not self.left or not self.right:
+            return None
+        else:
+            key = [
+                self.left.key[:i]
+                for i, k in enumerate(self.left.key)
+                if self.left.key[:i] == self.right.key[:i]
+            ]
+        return "".join(key[-1])
+
+    @property
+    def num_key(self) -> List[int]:
+        """Represents the dichotomy key as a list of integers."""
+        num_key = [int(k) for k in self.key]
+        return num_key
+
+    def record(self, pos: int, rep: int) -> None:
+        target_mask = self.masks[self.pointer]
+        other_mask = self.masks[1 - self.pointer]
+        self.reset_mask(other_mask)
+        if target_mask.rep < rep:
+            self.reset_mask(target_mask)
+        target_mask.pos = pos
+        target_mask.rep = rep
+        return
+
+
 class Mask:
     """A string to be used as the mask for the candidate character undergoing
     dichotomy resolution during parsing.
@@ -24,6 +180,7 @@ class Mask:
         self.demb = None
         self.pos = None
         self.rep = 0
+        self.freeze = False
         return
 
     def __repr__(self) -> str:
@@ -101,6 +258,9 @@ class Mask:
 
     def match(self, rep_str: str, pos: int = 0, ignore_pos: bool = False) -> bool:
         """Checks if the given string fits the element at the given position."""
+        # If freeze is True, fitting to the mask is forbidden
+        if self.freeze:
+            return False
         if ignore_pos:
             return any([rep_str in m for pos in self.literals for m in pos])
         else:
@@ -112,153 +272,6 @@ class Mask:
         self.rep = max(self.rep - rep_delta, 0)
         if self.pos:
             self.pos = max(self.pos - pos_delta, 0)
-        return
-
-
-class Element:
-    """A language element is an alphabetic string assigned a stance
-    of a certain level.
-    """
-
-    def __init__(
-        self, content: str | List[Element], stance: Stance, level: int
-    ) -> None:
-        self.content = content
-        self.stance = stance
-        self.level = level
-        self.rep: str = str()
-        self.complex: bool = isinstance(self.content, List)
-        self.head = self
-        return
-
-    def __repr__(self) -> str:
-        if self.complex:
-            return repr(self.head)
-        else:
-            return self.content
-
-    def __str__(self) -> str:
-        return str(repr(self))
-
-    @property
-    def num(self) -> int:
-        """Returns the number represented in the binary form by the stance."""
-        key = "".join([str(s) for s in self.stance.pos])
-        num = int(key, 2)
-        return num
-
-    def set_head(self, num: int) -> None:
-        """Finds the content element with the given binary number
-        and sets it as the head.
-        """
-        for e in self.content:
-            if int("".join([str(p) for p in e.stance.pos]), 2) == num:
-                self.head = e
-                return
-        raise Exception(f"Couldn't find head at node {num}")
-
-
-class Mapping:
-    """A temporary structure holding elements as they are recorded.
-    When a list of elements of depth > 0 is fully recorded, it is
-    replaced by an element of a higher level.
-    """
-
-    def __init__(self, level: int) -> None:
-        self.level = level
-        self.heads: List[int] = []
-        self.elems: List[Element] = []
-        self.cur_depth: int = 0
-        self.breaks: int = 0
-        self.stack = self.elems
-        self.holder = None
-        return
-
-    def record_element(self, e: Element) -> None:
-        """Adds an element to the current iterator."""
-        self.stack.append(e)
-        return
-
-    def push(self) -> None:
-        """Increases depth by one, adds a list and sets it to stack."""
-        self.cur_depth += 1
-        self.stack.append([])
-        self.holder = self.stack
-        self.stack = self.stack[-1]
-        return
-
-    def pop(self) -> None:
-        """Decreases depth by one and collapses the current list into an element."""
-        if self.cur_depth == 0:
-            print("Tried to set a negative depth")
-            return
-        self.cur_depth -= 1
-        self.stack = self.holder
-        self.stack[-1] = Element(self.stack[-1], Stance(), self.level)
-        head = self.heads[min(self.cur_depth + 1, len(self.heads) - 1)]
-        self.stack[-1].set_head(head)
-        self.stack[-1].stance.depth = self.cur_depth
-        return
-
-    def enumerate_elems(
-        self, num_key: List[int], d: Optional[int] = None
-    ) -> Dict | List[int]:
-        """Returns a list of stack indices of elements that conform
-        to the given key. If d is given, arranges them into a dict of lists
-        where the keys are the reps at d.
-        """
-        matches = {} if d else []
-        for i, e in enumerate(self.stack):
-            if e.stance.pos[: len(num_key)] == num_key:
-                if not d:
-                    matches.append(i)
-                else:
-                    slot = e.stance.rep[d]
-                    if slot not in matches:
-                        matches[slot] = [i]
-                    else:
-                        matches[slot].append(i)
-        return matches
-
-
-class Node:
-    """A dichotomic tree node. Connected to its parent and children,
-    defined by rank, number, and key.
-
-    Elements can be mapped to nodes either directly as content
-    or as a compound or complex elements (each type of mapped element
-    is stored separately).
-    """
-
-    def __init__(self, rank: int = 0) -> None:
-        self.parent: Node | None = None
-        self.rank = rank
-        self.num = 0
-        self.children = []
-        self.content = []
-        self.compounds = []
-        self.complexes = []
-        self.key = str()
-
-    def __repr__(self) -> str:
-        content = [s for s in self.content if isinstance(s, Element)]
-        return f"N({self.num}): {''.join(str(s) for s in content)}"
-
-    def __str__(self) -> str:
-        return repr(self)
-
-    def set_key(self, struct: List[int]):
-        """Computes and saves the key of the node in a binary format."""
-        layer = 1
-        layers = [1] + [(layer := layer * 2**x) for x in struct]
-        d = self.num - sum(layers[: self.rank])
-        key = f"{d:b}".rjust(sum(struct[: self.rank]), "0")
-        self.key = key if self.num > 0 else str()
-        return
-
-    def map_element(self, e: Element) -> None:
-        """Adds the given element to the content of the node."""
-        self.content.append(e)
         return
 
 
@@ -403,3 +416,87 @@ class Tree:
                 node.map_element(e)
                 cursor += s
         return
+
+
+class Node:
+    """A dichotomic tree node. Connected to its parent and children,
+    defined by rank, number, and key.
+
+    Elements can be mapped to nodes either directly as content
+    or as a compound or complex elements (each type of mapped element
+    is stored separately).
+    """
+
+    def __init__(self, rank: int = 0) -> None:
+        self.parent: Node | None = None
+        self.rank = rank
+        self.num = 0
+        self.children = []
+        self.content = []
+        self.compounds = []
+        self.complexes = []
+        self.key = str()
+
+    def __repr__(self) -> str:
+        content = [s for s in self.content if isinstance(s, Element)]
+        return f"N({self.num}): {''.join(str(s) for s in content)}"
+
+    def __str__(self) -> str:
+        return repr(self)
+
+    def set_key(self, struct: List[int]):
+        """Computes and saves the key of the node in a binary format."""
+        layer = 1
+        layers = [1] + [(layer := layer * 2**x) for x in struct]
+        d = self.num - sum(layers[: self.rank])
+        key = f"{d:b}".rjust(sum(struct[: self.rank]), "0")
+        self.key = key if self.num > 0 else str()
+        return
+
+    def map_element(self, e: Element) -> None:
+        """Adds the given element to the content of the node."""
+        self.content.append(e)
+        return
+
+
+class Element:
+    """A language element is an alphabetic string assigned a stance
+    of a certain level.
+    """
+
+    def __init__(
+        self, content: str | List[Element], stance: Stance, level: int
+    ) -> None:
+        self.content = content
+        self.stance = stance
+        self.level = level
+        self.rep: str = str()
+        self.complex: bool = isinstance(self.content, List)
+        self.head = self
+        return
+
+    def __repr__(self) -> str:
+        if self.complex:
+            return repr(self.head)
+        else:
+            return self.content
+
+    def __str__(self) -> str:
+        return str(repr(self))
+
+    @property
+    def num(self) -> int:
+        """Returns the number represented in the binary form by the stance."""
+        key = "".join([str(s) for s in self.stance.pos])
+        num = int(key, 2)
+        return num
+
+    def set_head(self, num: int) -> None:
+        """Finds the content element with the given binary number
+        and sets it as the head.
+        """
+        for e in self.content:
+            if int("".join([str(p) for p in e.stance.pos]), 2) == num:
+                self.head = e
+                return
+        raise Exception(f"Couldn't find head at node {num}")

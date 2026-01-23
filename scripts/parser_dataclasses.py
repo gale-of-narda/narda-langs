@@ -16,6 +16,7 @@ class Alphabet:
     separators: List[str]
     breakers: List[List[str]]
     embedders: List[List[str]]
+    bclasses: List[str]
 
     def prepare(self, st: str) -> str:
         """Removes non-alphabetic characters and makes the replacements."""
@@ -34,9 +35,17 @@ class Alphabet:
         masked = [ch for ch in replaced_string if ch in full_mask]
 
         # Strip separators from both ends
-        stripped_string = "".join(masked).strip("".join(to_strip))
+        ss = "".join(masked).strip("".join(to_strip))
 
-        return stripped_string.lower()
+        # Remove breakers that follow characters not from the breaking classes
+        for i, ch in enumerate(ss):
+            if i > 0 and ch in breakers:
+                if self.represent(ss[i - 1]) not in self.bclasses:
+                    ss = ss[:i] + ss[i + 1 :]
+
+        prepared_string = ss.lower()
+
+        return prepared_string
 
     def represent(self, ch: str, level: int = 0) -> str:
         """Repalces the input character with its alphabetic representation."""
@@ -109,99 +118,6 @@ class Buffer:
     parsed_string: Optional[str] = None
     mapping: Optional[Any] = None
     tree: Optional[Any] = None
-
-
-@dataclass
-class Dichotomy:
-    """A combination of the mask pair, parameters guiding the choice between them,
-    and the pointer that records the last choice made.
-    """
-
-    d: int = 0
-    nb: bool = False
-    terminal: bool = False
-    rev: Optional[bool] = None
-    ret: Optional[bool] = None
-    skip: Optional[bool] = None
-    split: Optional[bool] = None
-    _pointer: Optional[int] = field(default=None, init=False, repr=False)
-
-    def __repr__(self) -> str:
-        try:
-            return f"{repr(self.masks[0])}—{repr(self.masks[1])}"
-        except AttributeError:
-            return "(empty dichotomy)"
-
-    @property
-    def masks(self) -> List:
-        """Returns the masks in the appropriate order."""
-        try:
-            return [self.left, self.right] if not self.rev else [self.right, self.left]
-        except AttributeError:
-            return []
-
-    @property
-    def pointer(self):
-        """Returns which mask was fitted last (possibly None)."""
-        return self._pointer
-
-    @pointer.setter
-    def pointer(self, value: int | None) -> None:
-        """Setting the pointer to the first or second mask activates it
-        and deactivates the other mask. Setting it to None deactivates both.
-
-        To activate a mask is to set its position to 0 while setting the position
-        of the opposite mask to None and incrementing its rep.
-
-        To deactivate a mask is to set its position to None.
-        """
-        if value in (0, 1):
-            if not self.masks[value].active:
-                self.masks[value].pos = 0
-            if self.masks[1 - value].active:
-                self.masks[1 - value].pos = None
-                self.masks[1 - value].rep += 1
-        elif value is None:
-            for mask in self.masks:
-                if mask.active:
-                    mask.pos = None
-        else:
-            raise ValueError(f"Tried to set an illegal pointer value {value}")
-
-        self._pointer = value
-
-        return
-
-    @property
-    def key(self) -> str:
-        """The key of the dichotomy is the common left substring of the keys
-        of its masks.
-        """
-        if not self.left or not self.right:
-            return None
-        else:
-            key = [
-                self.left.key[:i]
-                for i, k in enumerate(self.left.key)
-                if self.left.key[:i] == self.right.key[:i]
-            ]
-        return "".join(key[-1])
-
-    @property
-    def num_key(self) -> List[int]:
-        """Represents the dichotomy key as a list of integers."""
-        num_key = [int(k) for k in self.key]
-        return num_key
-
-    def record(self, pos: int, rep: int) -> None:
-        target_mask = self.masks[self.pointer]
-        other_mask = self.masks[1 - self.pointer]
-        self.reset_mask(other_mask)
-        if target_mask.rep < rep:
-            self.reset_mask(target_mask)
-        target_mask.pos = pos
-        target_mask.rep = rep
-        return
 
 
 @dataclass
