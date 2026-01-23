@@ -1,6 +1,6 @@
 from math import log
 
-from typing import Dict, List, Any, Optional
+from typing import Dict, List
 from dataclasses import dataclass, field
 
 
@@ -108,16 +108,12 @@ class SpecialRules:
     tperms: List[List[List[str]]]
     tneuts: List[List[List[str]]]
 
-
 @dataclass
-class Buffer:
-    """A holder for mappings and trees used in the parsing procedure.
-    Each level has a list of those with length equal to the number of complexes + 1.
+class Dialect:
+    """A holder for the interpretations of arguments of node functions
+    and other related parameters.
     """
-
-    parsed_string: Optional[str] = None
-    mapping: Optional[Any] = None
-    tree: Optional[Any] = None
+    ctypes: List[Dict[str]]
 
 
 @dataclass
@@ -132,6 +128,11 @@ class Stance:
         pos = "".join([str(p) for p in self.pos])
         rep = "".join([str(r) for r in self.rep])
         return f"[{pos}|{rep}|{self.depth}]"
+
+    @property
+    def key(self) -> str:
+        """The key of the stance is the binary representation of its position."""
+        return "".join([str(s) for s in self.pos])
 
     def copy(self, lim: int | None = None) -> Stance:
         """Creates a copy of the stance with pos and rep limited from the right

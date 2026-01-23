@@ -66,6 +66,7 @@ class Mapping:
                         matches[slot].append(i)
         return matches
 
+
 class Dichotomy:
     """A combination of the mask pair, parameters guiding the choice between them,
     and the pointer that records the last choice made.
@@ -284,12 +285,13 @@ class Tree:
         self.nodes = [self.root]
         self.traverse(self.root, self._populate)
         self.perms = None
+        self.ctype = None
 
     def __repr__(self) -> str:
         return f"T{self.struct}"
 
     def __str__(self) -> str:
-        st = repr(self) + "\n"
+        st = f"{repr(self)}: {self.ctype} \n"
         st += self._draw(self.root)
         return st
 
@@ -347,8 +349,7 @@ class Tree:
         """Creates a structural copy of the tree and returns either that copy
         or its node of the given number.
         """
-        struct = self.struct
-        subtree = Tree(struct)
+        subtree = Tree(self.struct)
         if target is None:
             return subtree
         else:
@@ -386,33 +387,38 @@ class Tree:
         node.complexes.append(new_tree)
         return
 
-    def get_node(self, stance: Stance, ignore_comps: bool = False) -> Node:
-        """Returns the node addressed by the given stance."""
-        cursor = 0
-        node = self.root
+    def get_nodes(
+        self, stance: Optional[Stance] = None, upstream: bool = False
+    ) -> List[Node] | Node:
+        """Returns the node addressed by the given stance.
+        If upstream = True, also returns its ancestors.
+        """
+        if stance is None:
+            stance = Stance()
+        cursor, node, out = 0, self.root, [self.root]
         pos, comps = "".join([str(s) for s in stance.pos]), stance.rep
         struct_sums = [sum(self.struct[: i + 1]) for i, s in enumerate(self.struct)]
         struct_to_loop = [s for s in struct_sums if s <= len(pos)]
         for s in struct_to_loop:
             node = node.children[int(pos[cursor : cursor + s], 2)]
             comp = comps[cursor : cursor + s][-1]
-            if not ignore_comps:
-                if comp > 0:
-                    node = node.compounds[comp - 1]
+            if comp > 0:
+                node = node.compounds[comp - 1]
             cursor += s
-        return node
+            out.append(node)
+        return out if upstream else out[-1]
 
     def set_element(self, e: Element, set_all: bool = True) -> None:
         """Maps the element to the node addressed by its stance.
         If set_all is True, also maps it continuously to parent nodes
         all the way up to the root.
         """
-        node = self.get_node(e.stance)
+        node = self.get_nodes(e.stance)
         if set_all:
             cursor = 0
             struct = [0] + self.struct[: len(e.stance.pos)]
             for s in struct[: len(e.stance.pos) + 1]:
-                node = self.get_node(e.stance.copy(cursor + s))
+                node = self.get_nodes(e.stance.copy(cursor + s))
                 node.map_element(e)
                 cursor += s
         return
@@ -429,13 +435,15 @@ class Node:
 
     def __init__(self, rank: int = 0) -> None:
         self.parent: Node | None = None
-        self.rank = rank
-        self.num = 0
-        self.children = []
-        self.content = []
-        self.compounds = []
-        self.complexes = []
-        self.key = str()
+        self.rank: int = rank
+        self.num: int = 0
+        self.ranknum: int = 0
+        self.sibnum: int = 0
+        self.content: List[str] = []
+        self.children: List[Node] = []
+        self.compounds: List[Node] = []
+        self.complexes: List[Tree] = []
+        self.key: str = str()
 
     def __repr__(self) -> str:
         content = [s for s in self.content if isinstance(s, Element)]

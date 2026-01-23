@@ -4,8 +4,52 @@ from typing import Tuple, List, Optional
 from pathlib import Path
 
 from scripts.parser_entities import Mapping, Dichotomy, Tree, Mask, Element
-from scripts.parser_dataclasses import Alphabet, GeneralRules, SpecialRules
-from scripts.parser_dataclasses import Buffer, Stance
+from scripts.parser_dataclasses import Alphabet, GeneralRules, SpecialRules, Dialect
+from scripts.parser_dataclasses import Stance
+
+
+class Parser:
+    """The main class that orchestrates all language operations."""
+
+    def __init__(self, level: int, path: str = "") -> None:
+        self.level = level
+        self.path = path
+        self._load_params(path)
+        return
+
+    def _load_params(self, path: str = "") -> None:
+        """Creates the components and and loads the alphabet,
+        general and special rules from the given path.
+        """
+        self.loader = Loader(self)
+        self.alphabet = self.loader.load_alphabet(self.level)
+        self.grules = self.loader.load_grules(self.level)
+        self.srules = self.loader.load_srules(self.level)
+        self.dialect = self.loader.load_dialect(self.level)
+        self.masker = Masker(self)
+        self.mapper = Mapper(self)
+        self.interpreter = Interpreter(self)
+        return
+
+    def process(self, input_string: str) -> None:
+        """Performs the parsing procedure for the input string, commits the mapping
+        to the dichotomic tree and provides the dialectic interpretation.
+        """
+        # Create the mapping
+        self.masker = Masker(self)
+        self.mapper = Mapper(self)
+        mapping = self.mapper.parse(input_string)
+        if not mapping:
+            self._load_params(self.path)
+            return
+        self.mapping = mapping
+
+        # Commit the mapping to the tree
+        self.interpreter = Interpreter(self)
+        self.interpreter.apply(self.mapping.elems)
+        self.interpreter.determine_ctype()
+
+        return
 
 
 class Loader:
@@ -13,9 +57,10 @@ class Loader:
     used by the parser.
     """
 
-    def __init__(self, path: str = "") -> None:
+    def __init__(self, parser: Parser) -> None:
         # Directory from which the JSONs are loaded
-        self.path = path
+        self.parser = parser
+        self.path = parser.path
         return
 
     def load_alphabet(self, level: int) -> Alphabet:
@@ -74,16 +119,31 @@ class Loader:
         )
         return params
 
+    def load_dialect(self, level: int) -> Dialect:
+        """Loads the dialect parameters that interpret the mapped node arguments."""
+        path = Path(self.path + "params/dialect.json")
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        params = Dialect(
+            ctypes=data["Composition types"],
+        )
+        return params
+
 
 class Masker:
-    def __init__(self, grules: GeneralRules, srules: SpecialRules) -> None:
-        self.perms, self.revs, self.dembs = grules._unravel_term_params()
-        self.struct = grules.struct
-        self.rets = grules.rets
-        self.skips = grules.skips
-        self.splits = grules.splits
-        self.lembs = grules.lembs
-        self.tneuts = srules.tneuts
+    """Creates, holds, and manipulates the dichotomies and masks as needed
+    by the parsing procedure.
+    """
+
+    def __init__(self, parser: Parser) -> None:
+        self.parser = parser
+        self.perms, self.revs, self.dembs = parser.grules._unravel_term_params()
+        self.struct = parser.grules.struct
+        self.rets = parser.grules.rets
+        self.skips = parser.grules.skips
+        self.splits = parser.grules.splits
+        self.lembs = parser.grules.lembs
+        self.tneuts = parser.srules.tneuts
         self.masks = []
         self.construct()
         return
@@ -193,28 +253,26 @@ class Masker:
         return
 
 
-class Parser:
-    def __init__(self, level: int, path: str = "") -> None:
-        self.level = level
-        self._load_params(path)
-        self.buffer = Buffer()
-        return
+class Mapper:
+    """Performs the parsing procedure. Splits the input string into language elements
+    and produces a mapping of the elements to the dichotomic masks.
 
-    def _load_params(self, path: str = "") -> None:
-        """Creates the loader and loads the alphabet, general and special rules
-        from the given path.
-        """
-        self.loader = Loader(path)
-        self.alphabet = self.loader.load_alphabet(self.level)
-        self.grules = self.loader.load_grules(self.level)
-        self.srules = self.loader.load_srules(self.level)
+    Successful termination of the parsing procedure is the criterion of grammaticality.
+    """
+
+    def __init__(self, parser: Parser) -> None:
+        self.parser = parser
+        self.level = parser.level
+        self.alphabet = parser.alphabet
+        self.grules = parser.grules
+        self.srules = parser.srules
         return
 
     def _produce_mapping(self, prep_string: str) -> bool:
-        """Creates the mapping of elements to masks and saves it in the buffer."""
+        """Creates the mapping of elements to dichotomic masks."""
         sep = self.alphabet.separators
         pusher, popper = self.alphabet.embedders
-        mapping = self.buffer.mapping
+        mapping = self.mapping
 
         # Iterating the input string with the separator appropriate for the level
         string_iterator = prep_string.split(sep) if sep else [s for s in prep_string]
@@ -231,7 +289,7 @@ class Parser:
                     return False
             elif string == pusher:
                 mapping.push()
-                self.masker.construct(mapping.cur_depth)
+                self.parser.masker.construct(mapping.cur_depth)
                 print(f"=> Depth increased to {mapping.cur_depth}")
                 continue
 
@@ -274,9 +332,9 @@ class Parser:
 
         # Get keys for both masks
         mask_from, mask_to = dich.masks if not invert else dich.masks[::-1]
-        elems = self.buffer.mapping.stack
-        depth = self.buffer.mapping.cur_depth
-        matches = self.buffer.mapping.enumerate_elems(mask_from.num_key, dich.d)
+        elems = self.mapping.stack
+        depth = self.mapping.cur_depth
+        matches = self.mapping.enumerate_elems(mask_from.num_key, dich.d)
 
         # Skip the shift to a non-empty mask unless forced
         if not force and (mask_to.pos is not None or mask_to.rep > 0):
@@ -315,7 +373,7 @@ class Parser:
 
         # Reset the dichotomies downstream of the mask &
         # subtract the shifted elements from the mask
-        self.masker.reset_dichotomies(mask_from.num_key, depth)
+        self.parser.masker.reset_dichotomies(mask_from.num_key, depth)
         mask_from.subtract(elems_shifted, slots_shifted)
 
         return True
@@ -327,11 +385,11 @@ class Parser:
         if self.level != 0:
             return True
 
-        elems = self.buffer.mapping.stack
-        depth = self.buffer.mapping.cur_depth
+        elems = self.mapping.stack
+        depth = self.mapping.cur_depth
         left_nk, right_nk = dich.masks[0].num_key, dich.masks[1].num_key
-        left_matches = self.buffer.mapping.enumerate_elems(left_nk, dich.d)
-        right_matches = self.buffer.mapping.enumerate_elems(right_nk, dich.d)
+        left_matches = self.mapping.enumerate_elems(left_nk, dich.d)
+        right_matches = self.mapping.enumerate_elems(right_nk, dich.d)
 
         to_fill = [
             (left_matches[lm], dich.masks[1], elems[left_matches[lm][0]].stance)
@@ -381,7 +439,7 @@ class Parser:
             rep = self.alphabet.represent(e.head.content, self.level)
             perms = self.srules.tperms[e.num]
             priority = cnt if not rev else len(addrs) - 1 - cnt
-            perm = perms[min(self.buffer.mapping.cur_depth, len(perms) - 1)][priority]
+            perm = perms[min(self.mapping.cur_depth, len(perms) - 1)][priority]
 
             if e.head.content not in perm and rep not in perm:
                 print(f"-> No permission for '{e.head}' of class '{rep}' at {e.stance}")
@@ -389,40 +447,13 @@ class Parser:
 
         return True
 
-    def _apply(self, elems: List[Element], tree: Tree) -> None:
-        """Applies the given elements to the given tree using their stances.
-        Embeds complexes and compounds in the tree as needed.
-        """
-        finals = [r + 1 == s for s in self.grules.struct for r in range(s)]
-        # Iterating the elements and setting each
-        for i, e in enumerate(elems):
-            # Accounting for reps
-            for j, st in enumerate(e.stance.pos):
-                if finals[j]:
-                    base_stance = e.stance.copy(j + 1)
-                    base_stance.rep[-1] = 0
-                    base_node = tree.get_node(base_stance)
-                    if e.stance.rep[j] > len(base_node.compounds):
-                        for c in range(e.stance.rep[j] - len(base_node.compounds)):
-                            tree.embed_compound(base_node)
-
-            # Accounting for depth
-            if e.complex:
-                base_node = tree.get_node(e.stance)
-                tree.embed_complex(base_node)
-                self._apply(e.content, base_node.complexes[-1])
-
-            tree.set_element(e, set_all=True)
-
-        return
-
     def _determine_stance(self, e: Element) -> Stance | bool:
         """Produces the stance for the given element by deciding the dichotomies."""
         # Cycle through the ranks and determine the positions of the string for each
         e.stance = Stance()
-        depth = self.buffer.mapping.cur_depth
-        for d in range(len(self.masker.masks[depth])):
-            dich = self.masker.get_dichs(e.stance, depth)
+        depth = self.mapping.cur_depth
+        for d in range(len(self.parser.masker.masks[depth])):
+            dich = self.parser.masker.get_dichs(e.stance, depth)
             decision = self._decide_dichotomy(e, dich)
             if type(decision) is bool:
                 return decision
@@ -441,7 +472,7 @@ class Parser:
         the former to either first or second mask of the latter.
         """
         fit = None
-        depth = self.buffer.mapping.cur_depth
+        depth = self.mapping.cur_depth
 
         # Conditions of fit for the 1st and 2nd masks
         conds = [
@@ -455,8 +486,8 @@ class Parser:
         ]
 
         # Skip to the second mask if the breaker count is positive
-        if self.buffer.mapping.breaks > 0:
-            self.buffer.mapping.breaks += -1
+        if self.mapping.breaks > 0:
+            self.mapping.breaks += -1
             print(f"-> Skipping {dich.masks[0]}")
             if not comps[1]:
                 return False
@@ -467,7 +498,7 @@ class Parser:
         # Update the breaker count if a breaker is encountered
         for i, br in enumerate(self.alphabet.breakers):
             if e.head.content in br:
-                self.buffer.mapping.breaks += i + 1
+                self.mapping.breaks += i + 1
                 print("=> Breaker recorded")
                 return True
 
@@ -505,7 +536,7 @@ class Parser:
         old_mask = f"{dich.masks[fit]}"
 
         # Prepare the decision to output
-        self.masker.set_dichotomy(dich, comps[fit], depth)
+        self.parser.masker.set_dichotomy(dich, comps[fit], depth)
         pos = fit if not dich.rev else 1 - fit
         rev = dich.masks[fit].rep
 
@@ -523,12 +554,12 @@ class Parser:
         """Closes the last fitted branch of the topmost dichotomy
         and applies special rules to validate the final mapping.
         """
-        elems = self.buffer.mapping.stack
-        depth = self.buffer.mapping.cur_depth
-        dich = self.masker.masks[depth][0][0]
+        elems = self.mapping.stack
+        depth = self.mapping.cur_depth
+        dich = self.parser.masker.masks[depth][0][0]
 
         if not self._close_dichotomies(dich):
-            print("Failed to close the clause")
+            print("Failed to close the dichotomies")
             return False
 
         if not self._validate_mapping(elems):
@@ -544,8 +575,8 @@ class Parser:
         """
         res = True
         stance = Stance(pos=dich.masks[dich.pointer or 0].num_key)
-        depth = self.buffer.mapping.cur_depth
-        dichs = self.masker.get_dichs(stance, depth, downstream=True)
+        depth = self.mapping.cur_depth
+        dichs = self.parser.masker.get_dichs(stance, depth, downstream=True)
         invert = bool(dich.pointer or 0)
         for dich in dichs:
             if dich.nb:
@@ -606,34 +637,30 @@ class Parser:
         term_only: bool = False,
     ) -> bool:
         """Records the element if it can be fit with the current stance."""
-        depth = self.buffer.mapping.cur_depth
+        depth = self.mapping.cur_depth
         for p, pos in enumerate(stance.pos):
             if (term_only and p != len(stance.pos) - 1) or (d is not None and p < d):
                 continue
             part_stance = stance.copy(p)
-            dich = self.masker.get_dichs(part_stance, depth)
+            dich = self.parser.masker.get_dichs(part_stance, depth)
             cur_mask = pos if not dich.rev else 1 - pos
             comp = self._compare_with_mask(e, dich.masks[cur_mask], dich.split)
             if comp:
                 e.stance = stance
                 dich.pointer = cur_mask
-                self.masker.set_dichotomy(dich, comp, depth)
-                # print(f"Fit {e} with stance {stance} to {dich}")
+                self.parser.masker.set_dichotomy(dich, comp, depth)
             else:
                 return False
         return True
 
-    def parse(self, input_string: str) -> bool:
+    def parse(self, input_string: str) -> Mapping:
         """Parses the input string, producing the mapping of elements to stances
         and applying it to the dichotomic tree.
         """
-        self.masker = Masker(self.grules, self.srules)
-        self.buffer.tree = Tree(self.grules.struct)
-        self.buffer.mapping = Mapping(self.level)
-        self.buffer.mapping.heads = self.grules.heads
+        self.mapping = Mapping(self.level)
+        self.mapping.heads = self.grules.heads
 
         prepared_string = self.alphabet.prepare(input_string)
-        self.buffer.parsed_string = prepared_string
         print(f"Parsing '{input_string}' as '{prepared_string}'")
 
         # Apply general rules to produce the mapping
@@ -641,11 +668,73 @@ class Parser:
         if not res:
             print("Failed to produce the mapping")
             return False
+
         # Do the backward-looking corrections and _apply the special rules
-        elif self._close_clause():
-            # Commit the mapping to the tree
-            self._apply(self.buffer.mapping.elems, self.buffer.tree)
-            print(self.buffer.tree)
-            return True
+        if self._close_clause():
+            print(f"Successfully parsed '{prepared_string}'")
+            return self.mapping
         else:
             return False
+
+
+class Interpreter:
+    """Commits the given mapping to the dichotomic tree and provides dialectic
+    interpretations to the functions of its nodes with the received arguments.
+    """
+
+    def __init__(self, parser: Parser) -> None:
+        self.parser = parser
+        self.struct = parser.grules.struct
+        self.ctypes = parser.dialect.ctypes
+        self.tree = Tree(self.parser.grules.struct)
+        return
+
+    def apply(self, elems: List[Element], tree: Optional[Tree] = None) -> None:
+        """Applies the given elements to the given tree using their stances.
+        Embeds complexes and compounds in the tree as needed.
+        """
+        if tree is None:
+            tree = self.tree
+
+        finals = [r + 1 == s for s in self.struct for r in range(s)]
+        # Iterating the elements and setting each
+        for i, e in enumerate(elems):
+            # Accounting for reps
+            for j, st in enumerate(e.stance.pos):
+                if finals[j]:
+                    base_stance = e.stance.copy(j + 1)
+                    base_stance.rep[-1] = 0
+                    base_node = tree.get_nodes(base_stance)
+                    if e.stance.rep[j] > len(base_node.compounds):
+                        for c in range(e.stance.rep[j] - len(base_node.compounds)):
+                            tree.embed_compound(base_node)
+
+            # Accounting for depth
+            if e.complex:
+                base_node = tree.get_nodes(e.stance)
+                tree.embed_complex(base_node)
+                self.apply(e.content, base_node.complexes[-1])
+
+            tree.set_element(e, set_all=True)
+
+        return
+
+    def determine_ctype(self) -> None:
+        fits = []
+        for ctype in self.ctypes:
+            fit = True
+            for rank in self.ctypes[ctype]:
+                nodes = [n for n in self.tree.nodes if n.rank == int(rank)]
+                for node in nodes:
+                    perm = self.ctypes[ctype][rank][node.ranknum]
+                    if perm == "1" and not node.content:
+                        fit = False
+                    elif perm == "0" and node.content:
+                        fit = False
+            if fit:
+                fits.append(ctype)
+        if fits:
+            self.tree.ctype = fits[0]
+        else:
+            print("Could not determine the composition type")
+        return
