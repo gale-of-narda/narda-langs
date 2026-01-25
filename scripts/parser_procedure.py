@@ -1,11 +1,12 @@
+import csv
 import json
 
 from typing import Tuple, List, Optional
 from pathlib import Path
 
 from scripts.parser_entities import Mapping, Dichotomy, Tree, Mask, Element
-from scripts.parser_dataclasses import Alphabet, GeneralRules, SpecialRules, Dialect
-from scripts.parser_dataclasses import Stance
+from scripts.parser_dataclasses import Alphabet, GeneralRules, SpecialRules
+from scripts.parser_dataclasses import Dialect, Feature, Stance
 
 
 class Parser:
@@ -25,7 +26,7 @@ class Parser:
         self.alphabet = self.loader.load_alphabet(self.level)
         self.grules = self.loader.load_grules(self.level)
         self.srules = self.loader.load_srules(self.level)
-        self.dialect = self.loader.load_dialect(self.level)
+        self.dialect = self.loader.load_dialect()
         self.masker = Masker(self)
         self.mapper = Mapper(self)
         self.interpreter = Interpreter(self)
@@ -46,8 +47,9 @@ class Parser:
 
         # Commit the mapping to the tree
         self.interpreter = Interpreter(self)
-        self.interpreter.apply(self.mapping.elems)
-        self.interpreter.determine_ctype()
+        self.interpreter._apply(self.mapping.elems)
+        self.interpreter._determine_ctype()
+        self.interpreter._interpret()
 
         return
 
@@ -119,14 +121,43 @@ class Loader:
         )
         return params
 
-    def load_dialect(self, level: int) -> Dialect:
-        """Loads the dialect parameters that interpret the mapped node arguments."""
+    def load_dialect(self) -> Dialect:
+        """Loads the typed and untyped feature files that contain the descriptions
+        of functions and arguments.
+        """
+        # Loading the dialect parameters
         path = Path(self.path + "params/dialect.json")
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)
+
+        # Loading the features with functions and arguments
+        tables = {"untyped": [], "typed": []}
+        for t in tables:
+            path = Path(self.path + f"params/features_{t}.csv")
+            with path.open("r", encoding="utf-8-sig") as f:
+                reader = csv.DictReader(f, delimiter=";")
+                for line in reader:
+                    new_feature = Feature(
+                        ctype=line["ctype"] if t == "typed" else None,
+                        pos=[int(x) for x in line["pos"]],
+                        rep=[int(x) for x in line["rep"]],
+                        cpos=[int(x) for x in line["cpos"]],
+                        crep=[int(x) for x in line["crep"]],
+                        content_class=line["content_class"],
+                        priority=int(line["priority"]),
+                        index=int(line["index"]),
+                        function_name=line["function_name"],
+                        argument_name=line["argument_name"],
+                        argument_description=line["argument_description"],
+                    )
+                    tables[t].append(new_feature)
+
         params = Dialect(
             ctypes=data["Composition types"],
+            untyped=tables["untyped"],
+            typed=tables["typed"],
         )
+
         return params
 
 
@@ -661,6 +692,7 @@ class Mapper:
         self.mapping.heads = self.grules.heads
 
         prepared_string = self.alphabet.prepare(input_string)
+        self.prepared_string = prepared_string
         print(f"Parsing '{input_string}' as '{prepared_string}'")
 
         # Apply general rules to produce the mapping
@@ -685,11 +717,11 @@ class Interpreter:
     def __init__(self, parser: Parser) -> None:
         self.parser = parser
         self.struct = parser.grules.struct
-        self.ctypes = parser.dialect.ctypes
+        self.dialect = parser.dialect
         self.tree = Tree(self.parser.grules.struct)
         return
 
-    def apply(self, elems: List[Element], tree: Optional[Tree] = None) -> None:
+    def _apply(self, elems: List[Element], tree: Optional[Tree] = None) -> None:
         """Applies the given elements to the given tree using their stances.
         Embeds complexes and compounds in the tree as needed.
         """
@@ -713,28 +745,91 @@ class Interpreter:
             if e.complex:
                 base_node = tree.get_nodes(e.stance)
                 tree.embed_complex(base_node)
-                self.apply(e.content, base_node.complexes[-1])
+                self._apply(e.content, base_node.complexes[-1])
 
             tree.set_element(e, set_all=True)
 
         return
 
-    def determine_ctype(self) -> None:
+    def _determine_ctype(self) -> None:
+        """Determines the composition type of the element recorded in the tree."""
         fits = []
-        for ctype in self.ctypes:
+        ctypes = self.dialect.ctypes
+        # Try different types one by one
+        for ctype in ctypes:
             fit = True
-            for rank in self.ctypes[ctype]:
-                nodes = [n for n in self.tree.nodes if n.rank == int(rank)]
-                for node in nodes:
-                    perm = self.ctypes[ctype][rank][node.ranknum]
-                    if perm == "1" and not node.content:
-                        fit = False
-                    elif perm == "0" and node.content:
+            # Every type has conditions for nodes of different ranks
+            for rank in ctypes[ctype]:
+                nodes = [n for n in self.tree.all_nodes if n.rank == int(rank)]
+                min_num = min([node.num for node in nodes])
+                # Conditions place limits on the number of nodes in the rank
+                # that have any content
+                for i, perm in enumerate(ctypes[ctype][rank]):
+                    hits = [n for n in nodes if n.num - min_num == i and n.content]
+                    conds = [
+                        perm not in ("*", "+", "-") and len(hits) > int(perm),
+                        perm not in ("*", "+", "-") and len(hits) == 0,
+                        perm == "+" and len(hits) == 0,
+                        perm == "-" and len(hits) != 0,
+                    ]
+                    if any(conds):
                         fit = False
             if fit:
                 fits.append(ctype)
+        # Choose the first type that fits
         if fits:
             self.tree.ctype = fits[0]
         else:
             print("Could not determine the composition type")
+        return
+
+    def _interpret(self, tree: Optional[Tree] = None) -> None:
+        """Inscribes interpretations defined in the dialect to the tree nodes
+        depending on their content.
+        """
+        if tree is None:
+            tree = self.tree
+        # Finding features for the tree nodes and their compounds
+        nodes = [n for n in tree.all_nodes if n.terminal and n.content]
+        for node in nodes:
+            content = node.content[0].head.content[0]
+            cc_index = self.parser.alphabet.get_index(content)
+            if not cc_index:
+                continue
+            cc, index = cc_index
+            feature = self.dialect.get_feature(
+                index, cc, node.stance, tree.stance, tree.ctype
+            )
+            if not feature:
+                continue
+            node.feature = feature
+        # Intepreting the embedded trees
+        for node in [n for n in tree.all_nodes if n.complexes]:
+            for c in node.complexes:
+                self._interpret(c)
+        return
+
+    def describe(
+        self, tree: Optional[Tree] = None, verbose: bool = False, prefix: str = str()
+    ) -> None:
+        """Prints out a summary of interpreted features currently loaded
+        into the tree.
+        """
+        if tree is None:
+            tree = self.tree
+        string = prefix
+        string += f"{tree.ctype} '{self.parser.mapper.prepared_string}'"
+        nodes = [n for n in tree.all_nodes if n.feature]
+        # Describe the elements mapped to the nodes themselves and their compounds
+        for node in nodes:
+            string += f"\n{prefix}"
+            string += f"-> {node.feature.function_name} '{node.content[0]}': "
+            string += f"{node.feature.argument_name} "
+            if verbose:
+                string += f"— {node.feature.argument_description} "
+        print(string)
+        # Describe the embedded complexes
+        for node in [n for n in tree.all_nodes if n.complexes]:
+            for c in node.complexes:
+                self.describe(c, prefix=prefix + "· ")
         return

@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.19.5"
+__generated_with = "0.19.6"
 app = marimo.App()
 
 
@@ -19,16 +19,29 @@ def _(Parser):
 
 @app.cell
 def _(parser):
-    input_string = "nná"
+    input_string = "-nàz-aránus"
     parser.process(input_string)
     print(parser.interpreter.tree)
-    print(parser.interpreter.tree.ctype)
     #print([e.stance for e in parser.mapping.elems])
     #for rank in parser.masker.masks[0]:
     #    for dich in rank:
     #        print(dich, dich.preterminal, dich.terminal, dich.d)
     #        for mask in dich.masks:
     #            print(mask, mask.active)
+    return
+
+
+@app.cell
+def _(parser):
+    #parser.interpreter.tree.all_nodes
+    parser.interpreter.describe(verbose=False)
+    return
+
+
+@app.cell
+def _(parser):
+    for node in parser.interpreter.tree.all_nodes:
+        print(node, node.complexes)
     return
 
 

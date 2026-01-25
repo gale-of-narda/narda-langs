@@ -1,7 +1,7 @@
 {
     "Composition types": {
-        "Content word": {"1": "*11*"},
-        "Proform": {"1": "*10*"},
-        "Conjunction": {"1": "*01*"}
+        "Proform": {"1": "*+-*"},
+        "Conjunction": {"1": "*-+*"},
+        "Content word": {"1": "*++*"}
     }
 }

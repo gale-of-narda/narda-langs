@@ -1,6 +1,6 @@
 from math import log
 
-from typing import Dict, List
+from typing import Dict, Tuple, List, Optional
 from dataclasses import dataclass, field
 
 
@@ -62,6 +62,16 @@ class Alphabet:
                     return key
             raise ValueError(f"No representation for '{ch}' on level {level}")
 
+    def get_index(self, ch: str) -> Tuple(str, int) | None:
+        """Searches for the given character in content classes and returns
+        the index of first occurence, or None if nothing is found.
+        """
+        for cc in self.content:
+            index = self.content[cc].find(ch)
+            if index > 0:
+                return cc, index
+        return None
+
 
 @dataclass
 class GeneralRules:
@@ -84,7 +94,7 @@ class GeneralRules:
         as they are defined in more compact form.
         """
         perms, revs, dembs = [self.perms], [self.revs], [self.dembs]
-        for r in range(int(log(len(perms[0])))):
+        for r in range(int(log(len(perms[0]), 2))):
             split_perms, split_revs, split_dembs = [], [], []
             for i in range(0, len(perms[-1]), 2):
                 rev = min(revs[-1][i : i + 2]) if r < 1 else 0
@@ -108,12 +118,63 @@ class SpecialRules:
     tperms: List[List[List[str]]]
     tneuts: List[List[List[str]]]
 
+
 @dataclass
 class Dialect:
-    """A holder for the interpretations of arguments of node functions
-    and other related parameters.
-    """
+    """A holder for the parameters that guide the interpretation of node features."""
+
     ctypes: List[Dict[str]]
+    untyped: List
+    typed: List
+
+    def get_feature(
+        self,
+        index: int,
+        content_class: str,
+        stance: Stance,
+        cstance: Optional[Stance] = None,
+        ctype: Optional[str] = None,
+    ) -> Feature | None:
+        """Returns the feature described by the stances and character index,
+        or None if no feature is found. If content type is supplied, searches
+        the appropriate typed feature list first, then the untyped list
+        if no match is found.
+        """
+        feature_list = [
+            f
+            for f in self.typed + self.untyped
+            if (f.ctype or ctype) == ctype and f.content_class == content_class
+        ]
+        for f in feature_list:
+            if all([f.index == index, f.pos == stance.pos, f.rep == stance.rep]):
+                if all([not cstance, not f.cpos, not f.crep]) or all(
+                    [f.cpos == cstance.pos and f.crep == cstance.rep]
+                ):
+                    return f
+        return None
+
+
+@dataclass
+class Feature:
+    """A holder for a feature with all the parameters that describe it.
+    Ctype is None for untyped, str for typed features.
+    """
+
+    ctype: str | None
+    pos: List[int]
+    rep: List[int]
+    cpos: List[int]
+    crep: List[int]
+    content_class: str
+    priority: int
+    index: int
+    function_name: str
+    argument_name: str
+    argument_description: str
+
+    def __repr__(self) -> str:
+        string = f"{self.function_name}: {self.argument_name}"
+        return string
 
 
 @dataclass
@@ -128,6 +189,24 @@ class Stance:
         pos = "".join([str(p) for p in self.pos])
         rep = "".join([str(r) for r in self.rep])
         return f"[{pos}|{rep}|{self.depth}]"
+
+    @staticmethod
+    def decode(st: str) -> Stance:
+        """Returns a Stance object with pos, rep, and depth
+        based on the provided string.
+        """
+        stance = Stance()
+        data = st.strip("[]").split("|")
+        if len(data) > 0:
+            if data[0].isnumeric():
+                stance.pos = [int(d) for d in data[0]]
+        if len(data) > 1:
+            if data[1].isnumeric():
+                stance.rep = [int(d) for d in data[1]]
+        if len(data) > 2:
+            if data[2].isnumeric():
+                stance.depth = int(data[2])
+        return stance
 
     @property
     def key(self) -> str:

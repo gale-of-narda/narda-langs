@@ -1,5 +1,6 @@
-from typing import Dict, Tuple, List, Callable, Optional, Any
-from collections import deque
+from math import log
+
+from typing import Dict, Tuple, List, Optional
 
 from scripts.parser_dataclasses import Stance
 
@@ -279,38 +280,56 @@ class Mask:
 class Tree:
     """A dichotomic tree defined by the given structure."""
 
-    def __init__(self, struct: List[int]) -> None:
-        self.struct = struct
-        self.root = Node()
-        self.nodes = [self.root]
-        self.traverse(self.root, self._populate)
+    def __init__(self, struct: List[int], depth: int = 0) -> None:
+        self._depth: int = depth
+        self.struct: List[int] = struct
+        self.root: Node = Node()
+        self.nodes: List[Node] = [self.root]
         self.perms = None
         self.ctype = None
+        self.stance = None
+        self._populate(self.root)
 
     def __repr__(self) -> str:
         return f"T{self.struct}"
 
     def __str__(self) -> str:
-        st = f"{repr(self)}: {self.ctype} \n"
+        st = f"{repr(self)}: {self.ctype or 'Undefined composition type'}"
+        if self.stance:
+            st += f" at {self.stance}"
+        st += "\n"
         st += self._draw(self.root)
         return st
 
-    def _populate(self, node: Node, i: int):
+    def _populate(self, node: Node):
         """Realizes the defined structure by creating the appropriate number of nodes
         and setting the parent-child connections between them.
         """
+        # Rank of the current node, number of its children and nodes on the next rank
         r = node.rank
-        st = [0] + self.struct
-        node.num = i
-        node.ranknum = node.num - sum([2**s for s in st[: node.rank]])
-        node.set_key(self.struct)
-        if r < len(self.struct) and self.struct[r] > 0:
-            for sibnum in range(0, 2 ** self.struct[r]):
-                n = Node(r + 1)
-                n.sibnum = sibnum
-                n.parent = node
-                node.children.append(n)
-                self.nodes.append(n)
+        sibs = 2 ** self.struct[r]
+        ranks = sum([2**s for s in self.struct[:r]]) + 1
+        # Creating children of the current node
+        for sibnum in range(0, sibs):
+            ch = Node(r + 1)
+            ch.key = node.key + f"{sibnum:b}".rjust(int(log(sibs, 2)), "0")
+            ch.sibnum = sibnum
+            ch.ranknum = int(ch.key, 2)
+            ch.num = ch.ranknum + ranks
+            ch.terminal = r + 1 == len(self.struct)
+            ch._stance = Stance(
+                pos=[int(k) for k in ch.key],
+                rep=[0] * len(ch.key),
+                depth=self.depth,
+            )
+            ch.parent = node
+            node.children.append(ch)
+            self.nodes.append(ch)
+        # Performing the same operation for every child if it is not terminal
+        if r + 1 < len(self.struct):
+            for ch in node.children:
+                self._populate(ch)
+
         return
 
     def _draw(self, node: Node, depth: int = 0, header: str = "└", top=False) -> str:
@@ -345,37 +364,51 @@ class Tree:
 
         return st
 
-    def _get_subtree(self, target: Optional[int] = None) -> Tree:
+    def _get_subtree(self, target: Optional[int] = None) -> Tree | Node:
         """Creates a structural copy of the tree and returns either that copy
         or its node of the given number.
         """
         subtree = Tree(self.struct)
-        if target is None:
-            return subtree
-        else:
-            return subtree.nodes[target]
+        return subtree if target is None else subtree.nodes[target]
 
-    def traverse(self, subroot: Node, fun: Callable) -> Optional[Any]:
-        """Applies the given function to the nodes of the subtree
-        that originates from the given subroot.
+    @property
+    def depth(self) -> int:
+        """The depth of a tree is the number of complex embeddings that resulted
+        in its assignment to the parent node.
         """
-        queue = deque([subroot])
-        i = 0
-        while queue:
-            node = queue.popleft()
-            res = fun(node, i)
-            if res is not None:
-                return res
-            for ch in node.children:
-                queue.append(ch)
-            i += 1
+        return self._depth
+
+    @depth.setter
+    def depth(self, value: int) -> None:
+        """Updating the depth of the tree also updates the depths of all its nodes
+        and trees embedded in the nodes.
+        """
+        self._depth = value
+        for node in self.all_nodes:
+            node.stance.depth = value
+            for tree in node.complexes:
+                tree.depth = value
         return
+
+    @property
+    def all_nodes(self) -> List[Node]:
+        """A list of all nodes present anywhere in the tree, including compounds
+        and heads of complexes.
+        """
+        nodes: List[Node] = self.root.downstream
+        return sorted(nodes, key=lambda node: node.num)
 
     def embed_compound(self, node: Node) -> None:
         """Adds a copy of the subtree originating from the node of the given number
         to the mapped compounds list of the node.
         """
-        new_node = self._get_subtree(node.num)
+        new_node: Node = self._get_subtree(node.num)
+        d = len(new_node.key) - 1
+        new_stance = Stance(
+            new_node.stance.pos, new_node.stance.rep, new_node.stance.depth
+        )
+        new_stance.rep[d] = len(node.compounds) + 1
+        new_node.stance = new_stance
         node.compounds.append(new_node)
         return
 
@@ -383,7 +416,9 @@ class Tree:
         """Adds a copy of the subtree originating from the root of the tree
         to the mapped complexes list of the node.
         """
-        new_tree = self._get_subtree()
+        new_tree: Tree = self._get_subtree()
+        new_tree.depth = self.depth + 1
+        new_tree.stance = node.stance
         node.complexes.append(new_tree)
         return
 
@@ -434,16 +469,19 @@ class Node:
     """
 
     def __init__(self, rank: int = 0) -> None:
-        self.parent: Node | None = None
         self.rank: int = rank
+        self.key: str = str()
         self.num: int = 0
         self.ranknum: int = 0
         self.sibnum: int = 0
-        self.content: List[str] = []
+        self.terminal: bool = False
+        self._stance: Stance = Stance()
+        self.parent: Node | None = None
         self.children: List[Node] = []
         self.compounds: List[Node] = []
         self.complexes: List[Tree] = []
-        self.key: str = str()
+        self.content: List[str] = []
+        self.feature = None
 
     def __repr__(self) -> str:
         content = [s for s in self.content if isinstance(s, Element)]
@@ -452,18 +490,46 @@ class Node:
     def __str__(self) -> str:
         return repr(self)
 
-    def set_key(self, struct: List[int]):
-        """Computes and saves the key of the node in a binary format."""
-        layer = 1
-        layers = [1] + [(layer := layer * 2**x) for x in struct]
-        d = self.num - sum(layers[: self.rank])
-        key = f"{d:b}".rjust(sum(struct[: self.rank]), "0")
-        self.key = key if self.num > 0 else str()
-        return
-
     def map_element(self, e: Element) -> None:
         """Adds the given element to the content of the node."""
         self.content.append(e)
+        return
+
+    @property
+    def stance(self) -> Stance:
+        """The stance of a node is the representation of its dichotomic positions,
+        repetitions and depth.
+        """
+        return self._stance
+
+    @property
+    def downstream(self) -> List[Node]:
+        """A list that includes the node itself, its compounds, 
+        the heads of its complexes, and the same objects for every child.
+        """
+        nodes: List[Node] = [self] + self.compounds
+        children: List[Node] = []
+        for node in nodes:
+            for ch in node.children:
+                children += ch.downstream
+        return nodes + children
+
+    @stance.setter
+    def stance(self, value: Stance) -> None:
+        """Updating the stance of the node also updates the stances of all nodes
+        downstream of it, as well as those of its complexes and compounds.
+        """
+        for c in self.complexes:
+            c.stance = value
+        for c in self.compounds:
+            c.stance.pos = value.pos
+            c.stance.rep[:-1] = value.rep[:-1]
+            c.stance.depth = value.depth
+        for ch in self.children:
+            ch.stance.pos[: len(value.pos)] = value.pos
+            ch.stance.rep[: len(value.rep)] = value.rep
+            ch.stance.depth = value.depth
+
         return
 
 

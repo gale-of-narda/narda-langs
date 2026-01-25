@@ -1,0 +1,157 @@
+﻿ctype;pos;rep;cpos;crep;content_class;priority;index;function_name;argument_name;argument_description
+Proform;010;000;;;C;1;1;Impression base;Relative inanimate;Relates to definite inanimate entities
+Proform;010;000;;;C;2;2;Impression base;Relative animate;Relates to definite animate entities
+Proform;010;000;;;C;3;3;Impression base;Definite inanimate;Introduces definite inanimate entities
+Proform;010;000;;;C;4;4;Impression base;Definite animate;Introduces definite animate entities
+Proform;010;000;;;C;5;5;Impression base;Interrogative inanimate universal;Inquiries about undefined inanimate entities from the same range
+Proform;010;000;;;C;6;6;Impression base;Interrogative inanimate existential;Inquiries about undefined inanimate entities picked from a range
+Proform;010;000;;;C;7;7;Impression base;Demonstrative inanimate universal;Points to general inanimate entities from the same range
+Proform;010;000;;;C;8;8;Impression base;Demonstrative inanimate existential;Points to general inanimate entities picked from a range
+Proform;010;000;;;C;9;9;Impression base;Interrogative animate universal;Inquiries about undefined animate entities from the same range
+Proform;010;000;;;C;10;10;Impression base;Interrogative animate existential;Inquiries about undefined animate entities picked from a range
+Proform;010;000;;;C;11;11;Impression base;Demonstrative animate universal;Points to general animate entities that exhaust a range
+Proform;010;000;;;C;12;12;Impression base;Demonstrative animate existential;Points to general animate entities from a range
+Proform;010;000;;;C;13;13;Impression base;General inanimate universal;Replaces general inanimate entities that exhaust a range
+Proform;010;000;;;C;14;14;Impression base;General inanimate existential;Replaces general inanimate entities from a range
+Proform;010;000;;;C;15;15;Impression base;Alternate inanimate universal;Refers to different inanimate entities that exhaust a range
+Proform;010;000;;;C;16;16;Impression base;Alternate inanimate existential;Refers to different inanimate entities from a range
+Proform;010;000;;;C;17;17;Impression base;General animate universal;Replaces general animate entities that exhaust a range
+Proform;010;000;;;C;18;18;Impression base;General animate existential;Replaces general animate entities from a range
+Proform;010;000;;;C;19;19;Impression base;Alternate animate universal;Refers to different animate entities that exhaust a range
+Proform;010;000;;;C;20;20;Impression base;Alternate animate existential;Refers to different animate entities from a range
+Proform;011;000;;;V;1;1;Impression accident;Proximal common;Referents generally known or familiar to both speakers
+Proform;011;000;;;V;2;2;Impression accident;Distal common;Referents unfamiliar to or distant from both speakers
+Proform;011;000;;;V;3;3;Impression accident;Proximal default;Referents close to the speaker or introduced by the speaker
+Proform;011;000;;;V;4;4;Impression accident;Proximal inverse;Referents close to the listener or inquired by the speaker
+Proform;011;000;;;V;5;5;Impression accident;Distal default;Referents distant from the speaker
+Proform;011;000;;;V;6;6;Impression accident;Distal inverse;Referents distant from the listener
+Conjunction;100;000;;;C;1;1;Ideation base;Verum;Both P and not P
+Conjunction;100;000;;;C;2;2;Ideation base;Identity;Indeed, P
+Conjunction;100;000;;;C;3;3;Ideation base;Negation;Not P
+Conjunction;100;000;;;C;4;4;Ideation base;Falsum;Neither P nor not P
+Conjunction;100;000;;;C;5;5;Ideation base;Tautology;Everything is true
+Conjunction;100;000;;;C;6;6;Ideation base;Converse implication;"Not only Q; P follows from Q"
+Conjunction;100;000;;;C;7;7;Ideation base;Implication;"Not only P; P necessitates Q"
+Conjunction;100;000;;;C;8;8;Ideation base;Equivalence;"Not only P or only Q; P is equivalent to Q"
+Conjunction;100;000;;;C;9;9;Ideation base;Disjunction;P or Q, or both
+Conjunction;100;000;;;C;10;10;Ideation base;Projection of P;"At least P; P is independent from Q"
+Conjunction;100;000;;;C;11;11;Ideation base;Projection of Q;"At least Q; P does not matter for Q"
+Conjunction;100;000;;;C;12;12;Ideation base;Conjunction;P and Q
+Conjunction;100;000;;;C;13;13;Ideation base;Non-conjunction;"Not both P and Q; P is not compatible with Q"
+Conjunction;100;000;;;C;14;14;Ideation base;Negation of Q;"Not Q; P does not matter for not Q"
+Conjunction;100;000;;;C;15;15;Ideation base;Negation of P;"Not P; not P is independent from Q"
+Conjunction;100;000;;;C;16;16;Ideation base;Non-disjunction;Neither P nor Q
+Conjunction;100;000;;;C;17;17;Ideation base;Non-equivalence;"Either only P or only Q; P is opposite to Q"
+Conjunction;100;000;;;C;18;18;Ideation base;Non-implication;"P without Q; P does not necessitate Q"
+Conjunction;100;000;;;C;19;19;Ideation base;Converse non-implication;"Q without P; P does not follow from Q"
+Conjunction;100;000;;;C;20;20;Ideation base;Contradiction;Nothing is true
+Conjunction;101;000;;;V;1;1;Ideation accident;Logical operator;Defines logical operations
+Conjunction;101;000;;;V;2;2;Ideation accident;Arithmetic operator;Defines arithmetic operations
+Conjunction;101;000;;;V;3;3;Ideation accident;Congruent connective;Asserts a connection that agrees with previous discourse
+Conjunction;101;000;;;V;4;4;Ideation accident;Incongruent connective;Asserts a connection that disagrees with previous discourse
+Conjunction;101;000;;;V;5;5;Ideation accident;Even number;Represents even numbers
+Conjunction;101;000;;;V;6;6;Ideation accident;Odd number;Represents odd numbers
+Content word;010;000;;;C;1;1;Impression base;Image;Immediate basis and origin of perception, raw phenomenality: sense data, qualia, experience, intuition, imagination
+Content word;010;000;;;C;2;2;Impression base;Concept;Content of rational thought, objects of mediate perception: ideas, classes, rules, properties, information
+Content word;010;000;;;C;3;3;Impression base;Aggregate;Empirical objects, perceptible instances of abstract classes: things, instances, parts, bodies, collections
+Content word;010;000;;;C;4;4;Impression base;Agent;Empirical subjects, drivers of action, change and causality: persons, creatures, machines, toys, parties
+Content word;010;000;;;C;5;5;Impression base;Space;Fields and properties of distinction, comparable and differentiable: spectrums, places, distances, distinctions
+Content word;010;000;;;C;6;6;Impression base;Time;Continuity and identity of association, enduring and inherent: commonalities, periods, durations, identities
+Content word;010;000;;;C;7;7;Impression base;Shape;Contours of difference, what enables and participates in local interaction: appearances, textures, borders, forms
+Content word;010;000;;;C;8;8;Impression base;Path;Limits of identity, what enables and directs historical motion: movements, traces, causes, effects
+Content word;010;000;;;C;9;9;Impression base;Measure;Conceptualized quantity, descriptors of order and proportion: numbers, metrics, sizes, valuations
+Content word;010;000;;;C;10;10;Impression base;Affect;Conceptualized quality, developed marks and impressions: impact, impressions, memories, legacy
+Content word;010;000;;;C;11;11;Impression base;Relation;Patterns, laws and dispositions that give relevance or context to concepts: agreements, opinions, correspondence, values
+Content word;010;000;;;C;12;12;Impression base;Function;Operators, forms and activities that combine, transform, and give purpose: roles, positions, designations, responsibility
+Content word;010;000;;;C;13;13;Impression base;Matter;Substances that comprise measured objects, what is overcome in action: materials, composition, amounts, samples
+Content word;010;000;;;C;14;14;Impression base;Energy;Potential for change and influence in objects, what is spent in action: events, power, transmission, transformation
+Content word;010;000;;;C;15;15;Impression base;Structure;Spatial forms, hierarchy and order in material objects: buildings, frames, preparation, culture
+Content word;010;000;;;C;16;16;Impression base;Force;Temporal forms, compared and quantified interactions: effort, strength, impulse, struggle
+Content word;010;000;;;C;17;17;Impression base;View;Formal and symbolic models of the world, what makes sense: thoughts, signs, language, meaning
+Content word;010;000;;;C;18;18;Impression base;Will;Intuitive and instinctive impressions and drives, what motivates action: desires, fears, motives, habits
+Content word;010;000;;;C;19;19;Impression base;Instrument;Mediators and objects of activity, what is used and transformed: resources, tools, products, creations
+Content word;010;000;;;C;20;20;Impression base;Action;Particular combinations of subjects, objects and their interaction: behavior, activity, work, intention
+Content word;011;000;;;V;1;1;Impression accident;Affirmation;Ordinary presence: positive, explicit, normal, concordant, upward
+Content word;011;000;;;V;2;2;Impression accident;Negation;Extraordinary absence: negative, implicit, strange, discordant, downward
+Content word;011;000;;;V;3;3;Impression accident;Progression;Stable expansion: leading, extensive, symmetric, direct, forward
+Content word;011;000;;;V;4;4;Impression accident;Transformation;Disrupting growth: reaching, complex, continuous, interconnected, rightward
+Content word;011;000;;;V;5;5;Impression accident;Inversion;Stable reversion: following, compact, asymmetric, oblique, backward
+Content word;011;000;;;V;6;6;Impression accident;Subversion;Disrupting evasion: concealing, simple, discrete, autonomous, leftward
+Content word;100;000;;;C;1;1;Ideation base;Image;Immediate basis and origin of perception, raw phenomenality: sense data, qualia, experience, intuition, imagination
+Content word;100;000;;;C;2;2;Ideation base;Concept;Content of rational thought, objects of mediate perception: ideas, classes, rules, properties, information
+Content word;100;000;;;C;3;3;Ideation base;Aggregate;Empirical objects, perceptible instances of abstract classes: things, instances, parts, bodies, collections
+Content word;100;000;;;C;4;4;Ideation base;Agent;Empirical subjects, drivers of action, change and causality: persons, creatures, machines, toys, parties
+Content word;100;000;;;C;5;5;Ideation base;Space;Fields and properties of distinction, comparable and differentiable: spectrums, places, distances, distinctions
+Content word;100;000;;;C;6;6;Ideation base;Time;Continuity and identity of association, enduring and inherent: commonalities, periods, durations, identities
+Content word;100;000;;;C;7;7;Ideation base;Shape;Contours of difference, what enables and participates in local interaction: appearances, textures, borders, forms
+Content word;100;000;;;C;8;8;Ideation base;Path;Limits of identity, what enables and directs historical motion: movements, traces, causes, effects
+Content word;100;000;;;C;9;9;Ideation base;Measure;Conceptualized quantity, descriptors of order and proportion: numbers, metrics, sizes, valuations
+Content word;100;000;;;C;10;10;Ideation base;Affect;Conceptualized quality, developed marks and impressions: impact, impressions, memories, legacy
+Content word;100;000;;;C;11;11;Ideation base;Relation;Patterns, laws and dispositions that give relevance or context to concepts: agreements, opinions, correspondence, values
+Content word;100;000;;;C;12;12;Ideation base;Function;Operators, forms and activities that combine, transform, and give purpose: roles, positions, designations, responsibility
+Content word;100;000;;;C;13;13;Ideation base;Matter;Substances that comprise measured objects, what is overcome in action: materials, composition, amounts, samples
+Content word;100;000;;;C;14;14;Ideation base;Energy;Potential for change and influence in objects, what is spent in action: events, power, transmission, transformation
+Content word;100;000;;;C;15;15;Ideation base;Structure;Spatial forms, hierarchy and order in material objects: buildings, frames, preparation, culture
+Content word;100;000;;;C;16;16;Ideation base;Force;Temporal forms, compared and quantified interactions: effort, strength, impulse, struggle
+Content word;100;000;;;C;17;17;Ideation base;View;Formal and symbolic models of the world, what makes sense: thoughts, signs, language, meaning
+Content word;100;000;;;C;18;18;Ideation base;Will;Intuitive and instinctive impressions and drives, what motivates action: desires, fears, motives, habits
+Content word;100;000;;;C;19;19;Ideation base;Instrument;Mediators and objects of activity, what is used and transformed: resources, tools, products, creations
+Content word;100;000;;;C;20;20;Ideation base;Action;Particular combinations of subjects, objects and their interaction: behavior, activity, work, intention
+Content word;101;000;;;V;1;1;Ideation accident;Affirmation;Ordinary presence: positive, explicit, normal, concordant, upward
+Content word;101;000;;;V;2;2;Ideation accident;Negation;Extraordinary absence: negative, implicit, strange, discordant, downward
+Content word;101;000;;;V;3;3;Ideation accident;Progression;Stable expansion: leading, extensive, symmetric, direct, forward
+Content word;101;000;;;V;4;4;Ideation accident;Transformation;Disrupting growth: reaching, complex, continuous, interconnected, rightward
+Content word;101;000;;;V;5;5;Ideation accident;Inversion;Stable reversion: following, compact, asymmetric, oblique, backward
+Content word;101;000;;;V;6;6;Ideation accident;Subversion;Disrupting evasion: concealing, simple, discrete, autonomous, leftward
+Content word;010;001;;;C;1;1;Impression base;Image;Immediate basis and origin of perception, raw phenomenality: sense data, qualia, experience, intuition, imagination
+Content word;010;001;;;C;2;2;Impression base;Concept;Content of rational thought, objects of mediate perception: ideas, classes, rules, properties, information
+Content word;010;001;;;C;3;3;Impression base;Aggregate;Empirical objects, perceptible instances of abstract classes: things, instances, parts, bodies, collections
+Content word;010;001;;;C;4;4;Impression base;Agent;Empirical subjects, drivers of action, change and causality: persons, creatures, machines, toys, parties
+Content word;010;001;;;C;5;5;Impression base;Space;Fields and properties of distinction, comparable and differentiable: spectrums, places, distances, distinctions
+Content word;010;001;;;C;6;6;Impression base;Time;Continuity and identity of association, enduring and inherent: commonalities, periods, durations, identities
+Content word;010;001;;;C;7;7;Impression base;Shape;Contours of difference, what enables and participates in local interaction: appearances, textures, borders, forms
+Content word;010;001;;;C;8;8;Impression base;Path;Limits of identity, what enables and directs historical motion: movements, traces, causes, effects
+Content word;010;001;;;C;9;9;Impression base;Measure;Conceptualized quantity, descriptors of order and proportion: numbers, metrics, sizes, valuations
+Content word;010;001;;;C;10;10;Impression base;Affect;Conceptualized quality, developed marks and impressions: impact, impressions, memories, legacy
+Content word;010;001;;;C;11;11;Impression base;Relation;Patterns, laws and dispositions that give relevance or context to concepts: agreements, opinions, correspondence, values
+Content word;010;001;;;C;12;12;Impression base;Function;Operators, forms and activities that combine, transform, and give purpose: roles, positions, designations, responsibility
+Content word;010;001;;;C;13;13;Impression base;Matter;Substances that comprise measured objects, what is overcome in action: materials, composition, amounts, samples
+Content word;010;001;;;C;14;14;Impression base;Energy;Potential for change and influence in objects, what is spent in action: events, power, transmission, transformation
+Content word;010;001;;;C;15;15;Impression base;Structure;Spatial forms, hierarchy and order in material objects: buildings, frames, preparation, culture
+Content word;010;001;;;C;16;16;Impression base;Force;Temporal forms, compared and quantified interactions: effort, strength, impulse, struggle
+Content word;010;001;;;C;17;17;Impression base;View;Formal and symbolic models of the world, what makes sense: thoughts, signs, language, meaning
+Content word;010;001;;;C;18;18;Impression base;Will;Intuitive and instinctive impressions and drives, what motivates action: desires, fears, motives, habits
+Content word;010;001;;;C;19;19;Impression base;Instrument;Mediators and objects of activity, what is used and transformed: resources, tools, products, creations
+Content word;010;001;;;C;20;20;Impression base;Action;Particular combinations of subjects, objects and their interaction: behavior, activity, work, intention
+Content word;011;001;;;V;1;1;Impression accident;Affirmation;Ordinary presence: positive, explicit, normal, concordant, upward
+Content word;011;001;;;V;2;2;Impression accident;Negation;Extraordinary absence: negative, implicit, strange, discordant, downward
+Content word;011;001;;;V;3;3;Impression accident;Progression;Stable expansion: leading, extensive, symmetric, direct, forward
+Content word;011;001;;;V;4;4;Impression accident;Transformation;Disrupting growth: reaching, complex, continuous, interconnected, rightward
+Content word;011;001;;;V;5;5;Impression accident;Inversion;Stable reversion: following, compact, asymmetric, oblique, backward
+Content word;011;001;;;V;6;6;Impression accident;Subversion;Disrupting evasion: concealing, simple, discrete, autonomous, leftward
+Content word;100;001;;;C;1;1;Ideation base;Image;Immediate basis and origin of perception, raw phenomenality: sense data, qualia, experience, intuition, imagination
+Content word;100;001;;;C;2;2;Ideation base;Concept;Content of rational thought, objects of mediate perception: ideas, classes, rules, properties, information
+Content word;100;001;;;C;3;3;Ideation base;Aggregate;Empirical objects, perceptible instances of abstract classes: things, instances, parts, bodies, collections
+Content word;100;001;;;C;4;4;Ideation base;Agent;Empirical subjects, drivers of action, change and causality: persons, creatures, machines, toys, parties
+Content word;100;001;;;C;5;5;Ideation base;Space;Fields and properties of distinction, comparable and differentiable: spectrums, places, distances, distinctions
+Content word;100;001;;;C;6;6;Ideation base;Time;Continuity and identity of association, enduring and inherent: commonalities, periods, durations, identities
+Content word;100;001;;;C;7;7;Ideation base;Shape;Contours of difference, what enables and participates in local interaction: appearances, textures, borders, forms
+Content word;100;001;;;C;8;8;Ideation base;Path;Limits of identity, what enables and directs historical motion: movements, traces, causes, effects
+Content word;100;001;;;C;9;9;Ideation base;Measure;Conceptualized quantity, descriptors of order and proportion: numbers, metrics, sizes, valuations
+Content word;100;001;;;C;10;10;Ideation base;Affect;Conceptualized quality, developed marks and impressions: impact, impressions, memories, legacy
+Content word;100;001;;;C;11;11;Ideation base;Relation;Patterns, laws and dispositions that give relevance or context to concepts: agreements, opinions, correspondence, values
+Content word;100;001;;;C;12;12;Ideation base;Function;Operators, forms and activities that combine, transform, and give purpose: roles, positions, designations, responsibility
+Content word;100;001;;;C;13;13;Ideation base;Matter;Substances that comprise measured objects, what is overcome in action: materials, composition, amounts, samples
+Content word;100;001;;;C;14;14;Ideation base;Energy;Potential for change and influence in objects, what is spent in action: events, power, transmission, transformation
+Content word;100;001;;;C;15;15;Ideation base;Structure;Spatial forms, hierarchy and order in material objects: buildings, frames, preparation, culture
+Content word;100;001;;;C;16;16;Ideation base;Force;Temporal forms, compared and quantified interactions: effort, strength, impulse, struggle
+Content word;100;001;;;C;17;17;Ideation base;View;Formal and symbolic models of the world, what makes sense: thoughts, signs, language, meaning
+Content word;100;001;;;C;18;18;Ideation base;Will;Intuitive and instinctive impressions and drives, what motivates action: desires, fears, motives, habits
+Content word;100;001;;;C;19;19;Ideation base;Instrument;Mediators and objects of activity, what is used and transformed: resources, tools, products, creations
+Content word;100;001;;;C;20;20;Ideation base;Action;Particular combinations of subjects, objects and their interaction: behavior, activity, work, intention
+Content word;101;001;;;V;1;1;Ideation accident;Affirmation;Ordinary presence: positive, explicit, normal, concordant, upward
+Content word;101;001;;;V;2;2;Ideation accident;Negation;Extraordinary absence: negative, implicit, strange, discordant, downward
+Content word;101;001;;;V;3;3;Ideation accident;Progression;Stable expansion: leading, extensive, symmetric, direct, forward
+Content word;101;001;;;V;4;4;Ideation accident;Transformation;Disrupting growth: reaching, complex, continuous, interconnected, rightward
+Content word;101;001;;;V;5;5;Ideation accident;Inversion;Stable reversion: following, compact, asymmetric, oblique, backward
+Content word;101;001;;;V;6;6;Ideation accident;Subversion;Disrupting evasion: concealing, simple, discrete, autonomous, leftward
