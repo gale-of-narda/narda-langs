@@ -355,11 +355,11 @@ class Tree:
 
         for ch in node.children:
             st += self._draw(ch, depth + 1)
+        for cx in node.complexes:
+            st += prefix + "⤷─" + repr(cx) + "\n"
+            st += cx._draw(cx.root, depth + 2, top=True)
         for cd in node.compounds:
             st += self._draw(cd, depth, "⤷", top=True)
-        for cx in node.complexes:
-            st += prefix + "  " + "⤷─" + repr(cx) + "\n"
-            st += cx._draw(cx.root, depth + 2, top=True)
 
         return st
 

@@ -14,9 +14,8 @@ logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
 logging.basicConfig(
-    format="%(asctime)s [%(levelname)s] %(message)s",
+    format="[%(levelname)s] %(message)s",
     level=logging.DEBUG,
-    datefmt="%H:%M:%S",
 )
 
 
@@ -278,22 +277,28 @@ class Masker:
         target_mask = dich.masks[dich.pointer]
         other_mask = dich.masks[1 - dich.pointer]
         if not dich.terminal:
-            self.reset_dichotomies(other_mask.num_key, depth)
+            self.reset_dichotomies(depth, other_mask.num_key)
             if target_mask.rep < comp[1]:
-                self.reset_dichotomies(target_mask.num_key, depth)
+                self.reset_dichotomies(depth, target_mask.num_key)
         target_mask.pos, target_mask.rep = comp
         return
 
-    def reset_dichotomies(self, num_key: List[int], depth: int) -> None:
+    def reset_dichotomies(
+        self, depth: int, num_key: Optional[List[int]] = None, total: bool = False
+    ) -> None:
         """Sets the pointers of dichotomies with and downstream of the given key
         to None. Used to reset the masks of one branch when the pointer is set
-        to the other.
+        to the other, as well as to prepare for parsing the next element.
         """
+        if num_key is None:
+            num_key = []
         dichs = self.get_dichs(Stance(pos=num_key), depth, downstream=True)
         for dich in dichs:
             dich.pointer = None
             for mask in dich.masks:
                 mask.rep = 0
+                if total:
+                    mask.freeze = False
         return
 
 
@@ -333,7 +338,11 @@ class Mapper:
                     return False
             elif string == pusher:
                 mapping.push()
-                self.parser.masker.construct(mapping.cur_depth)
+                # Create the mask level if it doesn't exist, reset if it does
+                if len(self.parser.masker.masks) - 1 < mapping.cur_depth:
+                    self.parser.masker.construct(mapping.cur_depth)
+                else:
+                    self.parser.masker.reset_dichotomies(mapping.cur_depth, total=True)
                 logger.debug(f"=> Depth increased to {mapping.cur_depth}")
                 continue
 
@@ -350,7 +359,7 @@ class Mapper:
                 continue
             elif string != popper:
                 mapping.record_element(elem)
-                logger.debug(f"=> Assigned the stance {elem.stance}")
+            logger.debug(f"=> Assigned the stance {elem.stance}")
 
             # If the end of the string is reached but depth is still positive,
             # add provisional popper until depth zero is reached
@@ -373,7 +382,7 @@ class Mapper:
         # Equivalent mappings are shifted together or not at all,
         # compounds from closest to farthest to the target mask
         # and only if they fit (given lembs and perms).
-        logger.debug(f"Shifting {dich}")
+
         # Get keys for both masks
         mask_from, mask_to = dich.masks if not invert else dich.masks[::-1]
         elems = self.mapping.stack
@@ -419,7 +428,7 @@ class Mapper:
 
         # Reset the dichotomies downstream of the mask &
         # subtract the shifted elements from the mask
-        self.parser.masker.reset_dichotomies(mask_from.num_key, depth)
+        self.parser.masker.reset_dichotomies(depth, mask_from.num_key)
         mask_from.subtract(elems_shifted, slots_shifted)
 
         return True
@@ -472,6 +481,7 @@ class Mapper:
         """Checks that every mapping complies with terminal permissions.
         Only applicable to the zeroth level.
         """
+        return True
         if self.level != 0:
             return True
 
@@ -538,7 +548,6 @@ class Mapper:
         # Skip to the second mask if the breaker count is positive
         if self.mapping.breaks[depth] > 0:
             self.mapping.breaks[depth] -= 1
-            logger.debug(f"-> Skipping {dich.masks[0]}")
             if not comps[1]:
                 return False
             # Breaking is permanent, so fitting to the first mask is now forbidden
