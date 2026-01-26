@@ -16,7 +16,7 @@ class Mapping:
         self.heads: List[int] = []
         self.elems: List[Element] = []
         self.cur_depth: int = 0
-        self.breaks: int = 0
+        self.breaks: List[int] = [0]
         self.stack = self.elems
         self.holder = None
         return
@@ -32,6 +32,8 @@ class Mapping:
         self.stack.append([])
         self.holder = self.stack
         self.stack = self.stack[-1]
+        if len(self.breaks) < self.cur_depth + 1:
+            self.breaks.append(0)
         return
 
     def pop(self) -> None:
@@ -42,9 +44,14 @@ class Mapping:
         self.cur_depth -= 1
         self.stack = self.holder
         self.stack[-1] = Element(self.stack[-1], Stance(), self.level)
-        head = self.heads[min(self.cur_depth + 1, len(self.heads) - 1)]
-        self.stack[-1].set_head(head)
         self.stack[-1].stance.depth = self.cur_depth
+        # Try different head positions as determined in the general rules
+        # Set as head the first element that fits
+        for num in self.heads:
+            if self.stack[-1].set_head(num):
+                return
+        # If no match is found, choose the first element
+        self.stack[-1].set_head(int(self.stack[-1].stance.key or "0", 2))
         return
 
     def enumerate_elems(
@@ -504,7 +511,7 @@ class Node:
 
     @property
     def downstream(self) -> List[Node]:
-        """A list that includes the node itself, its compounds, 
+        """A list that includes the node itself, its compounds,
         the heads of its complexes, and the same objects for every child.
         """
         nodes: List[Node] = [self] + self.compounds
@@ -565,12 +572,12 @@ class Element:
         num = int(key, 2)
         return num
 
-    def set_head(self, num: int) -> None:
+    def set_head(self, num: int) -> bool:
         """Finds the content element with the given binary number
         and sets it as the head.
         """
         for e in self.content:
-            if int("".join([str(p) for p in e.stance.pos]), 2) == num:
+            if int(e.stance.key, 2) == num:
                 self.head = e
-                return
-        raise Exception(f"Couldn't find head at node {num}")
+                return True
+        return False

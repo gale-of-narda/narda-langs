@@ -360,7 +360,7 @@ class Mapper:
         # Equivalent mappings are shifted together or not at all,
         # compounds from closest to farthest to the target mask
         # and only if they fit (given lembs and perms).
-
+        print(f"Shifting {dich}")
         # Get keys for both masks
         mask_from, mask_to = dich.masks if not invert else dich.masks[::-1]
         elems = self.mapping.stack
@@ -455,6 +455,7 @@ class Mapper:
         """Checks that every mapping complies with terminal permissions.
         Only applicable to the zeroth level.
         """
+        return True
         if self.level != 0:
             return True
 
@@ -517,8 +518,8 @@ class Mapper:
         ]
 
         # Skip to the second mask if the breaker count is positive
-        if self.mapping.breaks > 0:
-            self.mapping.breaks += -1
+        if self.mapping.breaks[depth] > 0:
+            self.mapping.breaks[depth] += -1
             print(f"-> Skipping {dich.masks[0]}")
             if not comps[1]:
                 return False
@@ -529,7 +530,7 @@ class Mapper:
         # Update the breaker count if a breaker is encountered
         for i, br in enumerate(self.alphabet.breakers):
             if e.head.content in br:
-                self.mapping.breaks += i + 1
+                self.mapping.breaks[depth] += i + 1
                 print("=> Breaker recorded")
                 return True
 
@@ -751,8 +752,10 @@ class Interpreter:
 
         return
 
-    def _determine_ctype(self) -> None:
+    def _determine_ctype(self, tree: Optional[Tree] = None) -> None:
         """Determines the composition type of the element recorded in the tree."""
+        if tree is None:
+            tree = self.tree
         fits = []
         ctypes = self.dialect.ctypes
         # Try different types one by one
@@ -760,7 +763,7 @@ class Interpreter:
             fit = True
             # Every type has conditions for nodes of different ranks
             for rank in ctypes[ctype]:
-                nodes = [n for n in self.tree.all_nodes if n.rank == int(rank)]
+                nodes = [n for n in tree.all_nodes if n.rank == int(rank)]
                 min_num = min([node.num for node in nodes])
                 # Conditions place limits on the number of nodes in the rank
                 # that have any content
@@ -778,9 +781,13 @@ class Interpreter:
                 fits.append(ctype)
         # Choose the first type that fits
         if fits:
-            self.tree.ctype = fits[0]
+            tree.ctype = fits[0]
         else:
             print("Could not determine the composition type")
+        # Do the same for all embedded trees
+        for node in [n for n in tree.all_nodes if n.complexes]:
+            for c in node.complexes:
+                self._determine_ctype(c)
         return
 
     def _interpret(self, tree: Optional[Tree] = None) -> None:
@@ -789,7 +796,7 @@ class Interpreter:
         """
         if tree is None:
             tree = self.tree
-        # Finding features for the tree nodes and their compounds
+        # Find features for the tree nodes and their compounds
         nodes = [n for n in tree.all_nodes if n.terminal and n.content]
         for node in nodes:
             content = node.content[0].head.content[0]
@@ -803,7 +810,7 @@ class Interpreter:
             if not feature:
                 continue
             node.feature = feature
-        # Intepreting the embedded trees
+        # Interpret the embedded trees
         for node in [n for n in tree.all_nodes if n.complexes]:
             for c in node.complexes:
                 self._interpret(c)
@@ -819,15 +826,23 @@ class Interpreter:
             tree = self.tree
         string = prefix
         string += f"{tree.ctype} '{self.parser.mapper.prepared_string}'"
-        nodes = [n for n in tree.all_nodes if n.feature]
+        nodes = [n for n in tree.all_nodes if n.content and n.terminal]
         # Describe the elements mapped to the nodes themselves and their compounds
+        featureless = []
         for node in nodes:
-            string += f"\n{prefix}"
-            string += f"-> {node.feature.function_name} '{node.content[0]}': "
-            string += f"{node.feature.argument_name} "
-            if verbose:
-                string += f"— {node.feature.argument_description} "
+            if node.feature:
+                string += f"\n{prefix}"
+                string += f"-> '{node.content[0]}' — {node.feature.function_name}: "
+                string += f"{node.feature.argument_name} "
+                if verbose:
+                    string += f"— {node.feature.argument_description} "
+            else:
+                featureless.append(node)
         print(string)
+        # Note nodes with content but no discerned features
+        featureless_content = ", ".join([str(n) for n in featureless])
+        if featureless_content:
+            print(f"{prefix}=> Features lacking interpretation: {featureless_content}")
         # Describe the embedded complexes
         for node in [n for n in tree.all_nodes if n.complexes]:
             for c in node.complexes:

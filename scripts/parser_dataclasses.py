@@ -37,10 +37,12 @@ class Alphabet:
         # Strip separators from both ends
         ss = "".join(masked).strip("".join(to_strip))
 
-        # Remove breakers that follow characters not from the breaking classes
+        # Remove breakers after characters other than breaking classes
+        # or embedders
         for i, ch in enumerate(ss):
             if i > 0 and ch in breakers:
-                if self.represent(ss[i - 1]) not in self.bclasses:
+                st = self.represent(ss[i - 1])
+                if st not in self.bclasses + self.embedders:
                     ss = ss[:i] + ss[i + 1 :]
 
         prepared_string = ss.lower()

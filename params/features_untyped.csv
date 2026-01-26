@@ -41,58 +41,58 @@
 110;000;;;C;5;10;Aspect;Monadic imperfective;One-time telic predication that did not terminate
 110;000;;;C;6;14;Aspect;Iterative perfective;Repeating telic predication that successfully terminated
 110;000;;;C;7;18;Aspect;Iterative imperfective;Repeating telic predication that did not terminate
-010;010;;;C;1;1;Postfix base;Impersonal entity;"Pictures and experience; material or immaterial impressions"
-010;010;;;C;2;2;Postfix base;Personal entity;"Actors and performance; identity of animated, actant subjects"
-010;010;;;C;3;3;Postfix base;Impersonal idea;"Plans and templates; types and shapes for objects to fit"
-010;010;;;C;4;4;Postfix base;Personal idea;"Desires and drives; impulses and aspirations that direct the will"
-010;010;;;C;5;5;Postfix base;Impersonal direct sphere;"Ownership and places; fixations and spatial localities of action"
-010;010;;;C;6;6;Postfix base;Impersonal direct situation;"Events and periods; temporal localities and opportunities for action"
-010;010;;;C;7;7;Postfix base;Impersonal direct design;"Borders and interfaces; conduits of close interaction"
-010;010;;;C;8;8;Postfix base;Impersonal direct activity;"Metrics and quantities; changes in size and reach"
-010;010;;;C;9;9;Postfix base;Personal direct sphere;"Hierarchies and qualities; development and evolution of systems"
-010;010;;;C;10;10;Postfix base;Personal direct situation;"Interpretation and recreation; systems of meaning and value"
-010;010;;;C;11;11;Postfix base;Personal direct design;"Teams and collectives; what unites and directs agents"
-010;010;;;C;12;12;Postfix base;Personal direct activity;"Roles and duties; functionality in productive activity"
-010;010;;;C;13;13;Postfix base;Impersonal oblique sphere;"Resources and production; the makeup and usability of things"
-010;010;;;C;14;14;Postfix base;Impersonal oblique situation;"Actual and potential activity; emergence of action in time"
-010;010;;;C;15;15;Postfix base;Impersonal oblique design;"Orders and rules; systemic and institutional collectives"
-010;010;;;C;16;16;Postfix base;Impersonal oblique activity;"Applications of force; potential for change and resisting change"
-010;010;;;C;17;17;Postfix base;Personal oblique sphere;"Data and knowledge; symbolic and semantic contents"
-010;010;;;C;18;18;Postfix base;Personal oblique situation;"Reasons and purposes; actionable meaning of things"
-010;010;;;C;19;19;Postfix base;Personal oblique design;"Meaning and signs; media of expression and modeling"
-010;010;;;C;20;20;Postfix base;Personal oblique activity;"Causes and effects; experiments, actions and dependencies"
-011;010;;;V;1;1;Postfix accident;Passive abstract;"Mode or receiver; what is affected by action"
-011;010;;;V;2;2;Postfix accident;Active abstract;"State or operator; what causes and performs action"
-011;010;;;V;3;3;Postfix accident;Passive nominative;"Activity or region; locality, temporality, and process of action"
-011;010;;;V;4;4;Postfix accident;Passive associative;"Method or destination; path of action towards its end"
-011;010;;;V;5;5;Postfix accident;Active nominative;"Object or support; media, factors, and participants of action"
-011;010;;;V;6;6;Postfix accident;Active associative;"Quality or origin; conditons for and effectiveness of action"
-100;010;;;C;1;1;Prefix base;Objective quality;Intensity, degree, or stage
-100;010;;;C;2;2;Prefix base;Subjective quality;Degree of fit to its own class, type, or template
-100;010;;;C;3;3;Prefix base;Objective identity;Conceptual similarity to another referent
-100;010;;;C;4;4;Prefix base;Subjective identity;Degree of fit to expectations from it or its kind
-100;010;;;C;5;5;Prefix base;Objective position;Spatial location or direction
-100;010;;;C;6;6;Prefix base;Objective propriety;Temporal location or direction
-100;010;;;C;7;7;Prefix base;Objective quantity;Number, composition, or uniformity
-100;010;;;C;8;8;Prefix base;Objective homogeneity;Uniformity, variety, or coherence
-100;010;;;C;9;9;Prefix base;Subjective position;Degree of social or other deontic achievement or respect
-100;010;;;C;10;10;Prefix base;Subjective propriety;Degree of fit or aptitude, orientation in semantic temporality
-100;010;;;C;11;11;Prefix base;Subjective quantity;Postive or negative influence, alignment or support
-100;010;;;C;12;12;Prefix base;Subjective homogeneity;Figurative or deontic quality or value
-100;010;;;C;13;13;Prefix base;Objective structure;Empirical order and structure, set and element relationship
-100;010;;;C;14;14;Prefix base;Objective success;Precedence or role in causal or other temporal relationship
-100;010;;;C;15;15;Prefix base;Objective distinction;Quality of fullness, wholeness, or internal harmony
-100;010;;;C;16;16;Prefix base;Objective interrelation;Degree of causal or other temporal interconnection
-100;010;;;C;17;17;Prefix base;Subjective structure;Social distinctions related to age and sex
-100;010;;;C;18;18;Prefix base;Subjective success;Familial or other hereditary position
-100;010;;;C;19;19;Prefix base;Subjective distinction;Hierarchical position or degree of reverence
-100;010;;;C;20;20;Prefix base;Subjective interrelation;Experience and willingness to engage in relationships
-101;010;;;V;1;1;Prefix accident;Augmentative;Higher, senior, more general qualities
-101;010;;;V;2;2;Prefix accident;Diminutive;Lower, junior, more specific qualities
-101;010;;;V;3;3;Prefix accident;Superlative positive;Progressive, extensive, explicit qualities
-101;010;;;V;4;4;Prefix accident;Comparative positive;Dextral, intensive, aggregate qualities
-101;010;;;V;5;5;Prefix accident;Superlative negative;Regressive, compact, implicit qualities
-101;010;;;V;6;6;Prefix accident;Comparative negative;Sinistral, limited, particular qualities
+100;010;;;C;1;1;Postfix base;Impersonal entity;"Pictures and experience; material or immaterial impressions"
+100;010;;;C;2;2;Postfix base;Personal entity;"Actors and performance; identity of animated, actant subjects"
+100;010;;;C;3;3;Postfix base;Impersonal idea;"Plans and templates; types and shapes for objects to fit"
+100;010;;;C;4;4;Postfix base;Personal idea;"Desires and drives; impulses and aspirations that direct the will"
+100;010;;;C;5;5;Postfix base;Impersonal direct sphere;"Ownership and places; fixations and spatial localities of action"
+100;010;;;C;6;6;Postfix base;Impersonal direct situation;"Events and periods; temporal localities and opportunities for action"
+100;010;;;C;7;7;Postfix base;Impersonal direct design;"Borders and interfaces; conduits of close interaction"
+100;010;;;C;8;8;Postfix base;Impersonal direct activity;"Metrics and quantities; changes in size and reach"
+100;010;;;C;9;9;Postfix base;Personal direct sphere;"Hierarchies and qualities; development and evolution of systems"
+100;010;;;C;10;10;Postfix base;Personal direct situation;"Interpretation and recreation; systems of meaning and value"
+100;010;;;C;11;11;Postfix base;Personal direct design;"Teams and collectives; what unites and directs agents"
+100;010;;;C;12;12;Postfix base;Personal direct activity;"Roles and duties; functionality in productive activity"
+100;010;;;C;13;13;Postfix base;Impersonal oblique sphere;"Resources and production; the makeup and usability of things"
+100;010;;;C;14;14;Postfix base;Impersonal oblique situation;"Actual and potential activity; emergence of action in time"
+100;010;;;C;15;15;Postfix base;Impersonal oblique design;"Orders and rules; systemic and institutional collectives"
+100;010;;;C;16;16;Postfix base;Impersonal oblique activity;"Applications of force; potential for change and resisting change"
+100;010;;;C;17;17;Postfix base;Personal oblique sphere;"Data and knowledge; symbolic and semantic contents"
+100;010;;;C;18;18;Postfix base;Personal oblique situation;"Reasons and purposes; actionable meaning of things"
+100;010;;;C;19;19;Postfix base;Personal oblique design;"Meaning and signs; media of expression and modeling"
+100;010;;;C;20;20;Postfix base;Personal oblique activity;"Causes and effects; experiments, actions and dependencies"
+101;010;;;V;1;1;Postfix accident;Passive abstract;"Mode or receiver; what is affected by action"
+101;010;;;V;2;2;Postfix accident;Active abstract;"State or operator; what causes and performs action"
+101;010;;;V;3;3;Postfix accident;Passive nominative;"Activity or region; locality, temporality, and process of action"
+101;010;;;V;4;4;Postfix accident;Passive associative;"Method or destination; path of action towards its end"
+101;010;;;V;5;5;Postfix accident;Active nominative;"Object or support; media, factors, and participants of action"
+101;010;;;V;6;6;Postfix accident;Active associative;"Quality or origin; conditons for and effectiveness of action"
+010;010;;;C;1;1;Prefix base;Objective quality;Intensity, degree, or stage
+010;010;;;C;2;2;Prefix base;Subjective quality;Degree of fit to its own class, type, or template
+010;010;;;C;3;3;Prefix base;Objective identity;Conceptual similarity to another referent
+010;010;;;C;4;4;Prefix base;Subjective identity;Degree of fit to expectations from it or its kind
+010;010;;;C;5;5;Prefix base;Objective position;Spatial location or direction
+010;010;;;C;6;6;Prefix base;Objective propriety;Temporal location or direction
+010;010;;;C;7;7;Prefix base;Objective quantity;Number, composition, or uniformity
+010;010;;;C;8;8;Prefix base;Objective homogeneity;Uniformity, variety, or coherence
+010;010;;;C;9;9;Prefix base;Subjective position;Degree of social or other deontic achievement or respect
+010;010;;;C;10;10;Prefix base;Subjective propriety;Degree of fit or aptitude, orientation in semantic temporality
+010;010;;;C;11;11;Prefix base;Subjective quantity;Postive or negative influence, alignment or support
+010;010;;;C;12;12;Prefix base;Subjective homogeneity;Figurative or deontic quality or value
+010;010;;;C;13;13;Prefix base;Objective structure;Empirical order and structure, set and element relationship
+010;010;;;C;14;14;Prefix base;Objective success;Precedence or role in causal or other temporal relationship
+010;010;;;C;15;15;Prefix base;Objective distinction;Quality of fullness, wholeness, or internal harmony
+010;010;;;C;16;16;Prefix base;Objective interrelation;Degree of causal or other temporal interconnection
+010;010;;;C;17;17;Prefix base;Subjective structure;Social distinctions related to age and sex
+010;010;;;C;18;18;Prefix base;Subjective success;Familial or other hereditary position
+010;010;;;C;19;19;Prefix base;Subjective distinction;Hierarchical position or degree of reverence
+010;010;;;C;20;20;Prefix base;Subjective interrelation;Experience and willingness to engage in relationships
+011;010;;;V;1;1;Prefix accident;Augmentative;Higher, senior, more general qualities
+011;010;;;V;2;2;Prefix accident;Diminutive;Lower, junior, more specific qualities
+011;010;;;V;3;3;Prefix accident;Superlative positive;Progressive, extensive, explicit qualities
+011;010;;;V;4;4;Prefix accident;Comparative positive;Dextral, intensive, aggregate qualities
+011;010;;;V;5;5;Prefix accident;Superlative negative;Regressive, compact, implicit qualities
+011;010;;;V;6;6;Prefix accident;Comparative negative;Sinistral, limited, particular qualities
 010;000;000;000;C;1;1;Mood;Indicative–subjunctive;Description not subject to doubt, or a general speculation
 010;000;000;000;C;2;2;Mood;Directive–optative;Prescription justified by volition, or a factual wish
 010;000;000;000;C;3;3;Mood;Deductive–assumptive;Description that is deterministic, or a general assumption
@@ -143,31 +143,31 @@
 001;000;001;000;V;5;4;Alignment;Dative;Passive indirect: effect, purpose, or destination
 001;000;001;000;V;6;5;Alignment;Instrumental;Active indirect: tool, performer, or partner
 001;000;001;000;V;7;6;Alignment;Genitive;Active indirect: cause, reason, or origin
-100;000;111;001;C;1;1;Class;Picture;Non-analyzed impressions, images, sensations
-100;000;111;001;C;2;2;Class;Idea;Fully analyzed mental objects, thoughts, templates
-100;000;111;001;C;3;3;Class;Thing;Specific aggregates, concrete everyday objects and entities
-100;000;111;001;C;4;4;Class;Person;Specific agents, people, creatures, anthropomorphic objects
-100;000;111;001;C;5;5;Class;Instance;Elements of sets, copies, times or attempts in regard to action
-100;000;111;001;C;6;7;Class;Figure;Visible physical shapes, geometric objects and patterns
-100;000;111;001;C;7;9;Class;Part;Pieces, portions, components of objects and structures
-100;000;111;001;C;8;11;Class;Number;Numerical or quantifiable traits, formal objects
-100;000;111;001;C;9;13;Class;Mass;Undifferentiated aggregates, substances, materials
-100;000;111;001;C;10;15;Class;Construction;Differentiated aggregates, structures, systems
-100;000;111;001;C;11;17;Class;Participant;Actors, tools, resources that participate, produce or suffer the action
-100;000;111;001;C;12;19;Class;Symbol;Models, signs, words that relate to other objects
-101;000;111;001;V;1;1;Type;State;Inactant but temporal predicates: what it is like to be the entity
-101;000;111;001;V;2;2;Type;Mode;Inactant and atemporal subjects: roles taken on by entities
-101;000;111;001;V;3;3;Type;Action;Actant and temporal descriptors: what an object does
-101;000;111;001;V;4;4;Type;Method;Descriptors of actions and states: how it is performed
-101;000;111;001;V;5;5;Type;Thing;Actant but atemporal subjects: entities as they are
-101;000;111;001;V;6;6;Type;Characteristic;Descriptors of things and modes: what properties the subject has
-111;001;111;001;V;1;0;Part of speech;Stative;Complete statements
-111;001;111;001;V;2;1;Part of speech;Predicative;"Non-acting predicates; states"
-111;001;111;001;V;3;2;Part of speech;Subjective;"Non-acting subjects; modes"
-111;001;111;001;V;4;3;Part of speech;Verb;"Independent acting predicates; actions"
-111;001;111;001;V;5;4;Part of speech;Adverb;"Dependent predicates; properties of actions"
-111;001;111;001;V;6;5;Part of speech;Noun;"Independent acting subjects; things"
-111;001;111;001;V;7;6;Part of speech;Adjective;"Dependent subjects; properties of things"
+100;000;111;000;C;1;1;Class;Picture;Non-analyzed impressions, images, sensations
+100;000;111;000;C;2;2;Class;Idea;Fully analyzed mental objects, thoughts, templates
+100;000;111;000;C;3;3;Class;Thing;Specific aggregates, concrete everyday objects and entities
+100;000;111;000;C;4;4;Class;Person;Specific agents, people, creatures, anthropomorphic objects
+100;000;111;000;C;5;5;Class;Instance;Elements of sets, copies, times or attempts in regard to action
+100;000;111;000;C;6;7;Class;Figure;Visible physical shapes, geometric objects and patterns
+100;000;111;000;C;7;9;Class;Part;Pieces, portions, components of objects and structures
+100;000;111;000;C;8;11;Class;Number;Numerical or quantifiable traits, formal objects
+100;000;111;000;C;9;13;Class;Mass;Undifferentiated aggregates, substances, materials
+100;000;111;000;C;10;15;Class;Construction;Differentiated aggregates, structures, systems
+100;000;111;000;C;11;17;Class;Participant;Actors, tools, resources that participate, produce or suffer the action
+100;000;111;000;C;12;19;Class;Symbol;Models, signs, words that relate to other objects
+101;000;111;000;V;1;1;Type;State;Inactant but temporal predicates: what it is like to be the entity
+101;000;111;000;V;2;2;Type;Mode;Inactant and atemporal subjects: roles taken on by entities
+101;000;111;000;V;3;3;Type;Action;Actant and temporal descriptors: what an object does
+101;000;111;000;V;4;4;Type;Method;Descriptors of actions and states: how it is performed
+101;000;111;000;V;5;5;Type;Thing;Actant but atemporal subjects: entities as they are
+101;000;111;000;V;6;6;Type;Characteristic;Descriptors of things and modes: what properties the subject has
+111;000;111;000;V;1;0;Part of speech;Stative;Complete statements
+111;000;111;000;V;2;1;Part of speech;Predicative;"Non-acting predicates; states"
+111;000;111;000;V;3;2;Part of speech;Subjective;"Non-acting subjects; modes"
+111;000;111;000;V;4;3;Part of speech;Verb;"Independent acting predicates; actions"
+111;000;111;000;V;5;4;Part of speech;Adverb;"Dependent predicates; properties of actions"
+111;000;111;000;V;6;5;Part of speech;Noun;"Independent acting subjects; things"
+111;000;111;000;V;7;6;Part of speech;Adjective;"Dependent subjects; properties of things"
 100;000;110;000;C;1;1;Article;Indefinite instance;Non-specific instance selection: every instance possible, not necessary
 100;000;110;000;C;2;2;Article;Definite instance;Specific instance selection: not every instance possible or necessary
 100;000;110;000;C;3;3;Article;Indefinite subclass;Non-specific subclass selection: every subclass possible, not necessary
