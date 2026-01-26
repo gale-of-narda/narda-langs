@@ -10,8 +10,8 @@ class Alphabet:
     Has functions for removing non-alphabetic and representing alphabetic characters.
     """
 
-    content: Dict[str]
-    equivalents: Dict[str]
+    content: Dict[str, str]
+    equivalents: Dict[str, str]
     wildcards: List[str]
     separators: List[str]
     breakers: List[List[str]]
@@ -31,11 +31,10 @@ class Alphabet:
         breakers = "".join(self.breakers)
         embedders = "".join(self.embedders)
         full_mask = content + separators + breakers + embedders
-        to_strip = separators
         masked = [ch for ch in replaced_string if ch in full_mask]
 
         # Strip separators from both ends
-        ss = "".join(masked).strip("".join(to_strip))
+        ss = "".join(masked).strip(separators)
 
         # Remove breakers after characters other than breaking classes
         # or embedders
@@ -50,27 +49,24 @@ class Alphabet:
         return prepared_string
 
     def represent(self, ch: str, level: int = 0) -> str:
-        """Repalces the input character with its alphabetic representation."""
+        """Replaces the input character with its alphabetic representation."""
         if level != 0:
             return ch.upper()
         else:
-            content = self.content.items()
-            breakers = list(self.breakers)
-            embedders = list(self.embedders)
-            if any(ch in nc for nc in breakers + embedders):
+            if any(ch in nc for nc in self.breakers + self.embedders):
                 return ch
-            for key, val in content:
+            for key, val in self.content.items():
                 if ch in val:
                     return key
             raise ValueError(f"No representation for '{ch}' on level {level}")
 
-    def get_index(self, ch: str) -> Tuple(str, int) | None:
+    def get_index(self, ch: str) -> Tuple[str, int] | None:
         """Searches for the given character in content classes and returns
-        the index of first occurence, or None if nothing is found.
+        the index of first occurrence, or None if nothing is found.
         """
         for cc in self.content:
             index = self.content[cc].find(ch)
-            if index > 0:
+            if index >= 0:
                 return cc, index
         return None
 
@@ -91,7 +87,9 @@ class GeneralRules:
     perms: List[List[str]]
     lembs: List[List[List[int]]]
 
-    def _unravel_term_params(self) -> None:
+    def _unravel_term_params(
+        self,
+    ) -> Tuple[List[List[List[str]]], List[List[List[int]]], List[List[List[int]]]]:
         """Creates perms, revs, dembs for each mask based on the general rules
         as they are defined in more compact form.
         """
@@ -125,9 +123,9 @@ class SpecialRules:
 class Dialect:
     """A holder for the parameters that guide the interpretation of node features."""
 
-    ctypes: List[Dict[str]]
-    untyped: List
-    typed: List
+    ctypes: List[Dict[str, str]]
+    untyped: List[Feature]
+    typed: List[Feature]
 
     def get_feature(
         self,
@@ -148,9 +146,9 @@ class Dialect:
             if (f.ctype or ctype) == ctype and f.content_class == content_class
         ]
         for f in feature_list:
-            if all([f.index == index, f.pos == stance.pos, f.rep == stance.rep]):
-                if all([not cstance, not f.cpos, not f.crep]) or all(
-                    [f.cpos == cstance.pos and f.crep == cstance.rep]
+            if all((f.index == index, f.pos == stance.pos, f.rep == stance.rep)):
+                if (not cstance and not f.cpos and not f.crep) or (
+                    cstance and f.cpos == cstance.pos and f.crep == cstance.rep
                 ):
                     return f
         return None
@@ -175,8 +173,7 @@ class Feature:
     argument_description: str
 
     def __repr__(self) -> str:
-        string = f"{self.function_name}: {self.argument_name}"
-        return string
+        return f"{self.function_name}: {self.argument_name}"
 
 
 @dataclass
@@ -188,9 +185,10 @@ class Stance:
     depth: int = 0
 
     def __repr__(self) -> str:
-        pos = "".join([str(p) for p in self.pos])
-        rep = "".join([str(r) for r in self.rep])
-        return f"[{pos}|{rep}|{self.depth}]"
+        pos = "".join(str(p) for p in self.pos)
+        rep = "".join(str(r) for r in self.rep)
+        depth = self.depth
+        return f"[{pos}|{rep}|{depth}]"
 
     @staticmethod
     def decode(st: str) -> Stance:
@@ -199,28 +197,24 @@ class Stance:
         """
         stance = Stance()
         data = st.strip("[]").split("|")
-        if len(data) > 0:
-            if data[0].isnumeric():
-                stance.pos = [int(d) for d in data[0]]
-        if len(data) > 1:
-            if data[1].isnumeric():
-                stance.rep = [int(d) for d in data[1]]
-        if len(data) > 2:
-            if data[2].isnumeric():
-                stance.depth = int(data[2])
+        if data and data[0].isdigit():
+            stance.pos = [int(d) for d in data[0]]
+        if len(data) > 1 and data[1].isdigit():
+            stance.rep = [int(d) for d in data[1]]
+        if len(data) > 2 and data[2].isdigit():
+            stance.depth = int(data[2])
         return stance
 
     @property
     def key(self) -> str:
         """The key of the stance is the binary representation of its position."""
-        return "".join([str(s) for s in self.pos])
+        return "".join(str(s) for s in self.pos)
 
     def copy(self, lim: int | None = None) -> Stance:
         """Creates a copy of the stance with pos and rep limited from the right
         by the given index.
         """
-        pos = [p for p in self.pos][:lim]
-        rep = [r for r in self.rep][:lim]
+        pos = self.pos[:lim] if lim is not None else self.pos[:]
+        rep = self.rep[:lim] if lim is not None else self.rep[:]
         depth = self.depth
-        new_stance = Stance(pos, rep, depth)
-        return new_stance
+        return Stance(pos, rep, depth)

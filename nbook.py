@@ -19,7 +19,7 @@ def _(Parser):
 
 @app.cell
 def _(parser):
-    input_string = "máınuras"
+    input_string = "ara"
     parser.process(input_string)
     print(parser.interpreter.tree)
     print([e.stance for e in parser.mapping.elems])
@@ -35,11 +35,6 @@ def _(parser):
 def _(parser):
     #parser.interpreter.tree.all_nodes
     parser.interpreter.describe(verbose=False)
-    return
-
-
-@app.cell
-def _():
     return
 
 

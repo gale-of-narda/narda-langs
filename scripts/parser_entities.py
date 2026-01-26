@@ -39,8 +39,7 @@ class Mapping:
     def pop(self) -> None:
         """Decreases depth by one and collapses the current list into an element."""
         if self.cur_depth == 0:
-            print("Tried to set a negative depth")
-            return
+            raise ValueError("Tried to set a negative depth")
         self.cur_depth -= 1
         self.stack = self.holder
         self.stack[-1] = Element(self.stack[-1], Stance(), self.level)
@@ -56,7 +55,7 @@ class Mapping:
 
     def enumerate_elems(
         self, num_key: List[int], d: Optional[int] = None
-    ) -> Dict | List[int]:
+    ) -> Dict[str, List[int]] | List[int]:
         """Returns a list of stack indices of elements that conform
         to the given key. If d is given, arranges them into a dict of lists
         where the keys are the reps before d.
@@ -67,7 +66,7 @@ class Mapping:
                 if not d:
                     matches.append(i)
                 else:
-                    slot = "".join([str(r) for r in e.stance.rep[:d]])
+                    slot = "".join(str(r) for r in e.stance.rep[:d])
                     if slot not in matches:
                         matches[slot] = [i]
                     else:
@@ -98,7 +97,7 @@ class Dichotomy:
             return "(empty dichotomy)"
 
     @property
-    def masks(self) -> List:
+    def masks(self) -> List[Mask]:
         """Returns the masks in the appropriate order."""
         try:
             return [self.left, self.right] if not self.rev else [self.right, self.left]
@@ -106,7 +105,7 @@ class Dichotomy:
             return []
 
     @property
-    def pointer(self):
+    def pointer(self) -> Optional[int]:
         """Returns the number of mask was fitted last (possibly None)."""
         return self._pointer
 
@@ -134,23 +133,21 @@ class Dichotomy:
             raise ValueError(f"Tried to set an illegal pointer value {value}")
 
         self._pointer = value
-
         return
 
     @property
-    def key(self) -> str:
+    def key(self) -> Optional[str]:
         """The key of the dichotomy is the common left substring of the keys
         of its masks.
         """
         if not self.left or not self.right:
             return None
-        else:
-            key = [
-                self.left.key[:i]
-                for i, k in enumerate(self.left.key)
-                if self.left.key[:i] == self.right.key[:i]
-            ]
-        return "".join(key[-1])
+        key = [
+            self.left.key[:i]
+            for i, k in enumerate(self.left.key)
+            if self.left.key[:i] == self.right.key[:i]
+        ]
+        return "".join(key[-1]) if key else ""
 
     @property
     def num_key(self) -> List[int]:
@@ -247,7 +244,7 @@ class Mask:
 
         return literals, optionals
 
-    def move(self, step: int, inplace: bool = False) -> Tuple[int, int]:
+    def move(self, step: int, inplace: bool = False) -> Optional[Tuple[int, int]]:
         """Changes the position of the cursor in the mask for the given number
         of steps forward. Loops back and increases the repetition counter
         if the mask is cyclical.
@@ -262,8 +259,7 @@ class Mask:
             self.pos = new_pos
             self.rep = new_rep
             return None
-        else:
-            return (new_pos, new_rep)
+        return (new_pos, new_rep)
 
     def match(self, rep_str: str, pos: int = 0, ignore_pos: bool = False) -> bool:
         """Checks if the given string fits the element at the given position."""
@@ -271,15 +267,14 @@ class Mask:
         if self.freeze:
             return False
         if ignore_pos:
-            return any([rep_str in m for pos in self.literals for m in pos])
-        else:
-            target_pos = self.move(pos)[0]
-            return any([rep_str in m for m in self.literals[target_pos]])
+            return any(rep_str in m for lits in self.literals for m in lits)
+        target_pos = self.move(pos)[0]
+        return any(rep_str in m for m in self.literals[target_pos])
 
     def subtract(self, pos_delta: int = 0, rep_delta: int = 0) -> None:
         """Subtracts the given number of rep and pos, limited by zero."""
         self.rep = max(self.rep - rep_delta, 0)
-        if self.pos:
+        if self.pos is not None:
             self.pos = max(self.pos - pos_delta, 0)
         return
 
@@ -308,7 +303,7 @@ class Tree:
         st += self._draw(self.root)
         return st
 
-    def _populate(self, node: Node):
+    def _populate(self, node: Node) -> None:
         """Realizes the defined structure by creating the appropriate number of nodes
         and setting the parent-child connections between them.
         """
@@ -327,7 +322,7 @@ class Tree:
             ch._stance = Stance(
                 pos=[int(k) for k in ch.key],
                 rep=[0] * len(ch.key),
-                depth=self.depth,
+                depth=self._depth,
             )
             ch.parent = node
             node.children.append(ch)
@@ -336,7 +331,6 @@ class Tree:
         if r + 1 < len(self.struct):
             for ch in node.children:
                 self._populate(ch)
-
         return
 
     def _draw(self, node: Node, depth: int = 0, header: str = "└", top=False) -> str:
@@ -360,10 +354,8 @@ class Tree:
         st = prefix + arrow + "─" + repr(node) + "\n"
 
         for ch in node.children:
-            # if ch.content:
             st += self._draw(ch, depth + 1)
         for cd in node.compounds:
-            # if cd.content:
             st += self._draw(cd, depth, "⤷", top=True)
         for cx in node.complexes:
             st += prefix + "  " + "⤷─" + repr(cx) + "\n"
@@ -438,7 +430,7 @@ class Tree:
         if stance is None:
             stance = Stance()
         cursor, node, out = 0, self.root, [self.root]
-        pos, comps = "".join([str(s) for s in stance.pos]), stance.rep
+        pos, comps = "".join(str(s) for s in stance.pos), stance.rep
         struct_sums = [sum(self.struct[: i + 1]) for i, s in enumerate(self.struct)]
         struct_to_loop = [s for s in struct_sums if s <= len(pos)]
         for s in struct_to_loop:
@@ -489,6 +481,7 @@ class Node:
         self.complexes: List[Tree] = []
         self.content: List[str] = []
         self.feature = None
+        return
 
     def __repr__(self) -> str:
         content = [s for s in self.content if isinstance(s, Element)]
@@ -536,7 +529,6 @@ class Node:
             ch.stance.pos[: len(value.pos)] = value.pos
             ch.stance.rep[: len(value.rep)] = value.rep
             ch.stance.depth = value.depth
-
         return
 
 
@@ -568,9 +560,8 @@ class Element:
     @property
     def num(self) -> int:
         """Returns the number represented in the binary form by the stance."""
-        key = "".join([str(s) for s in self.stance.pos])
-        num = int(key, 2)
-        return num
+        key = "".join(str(s) for s in self.stance.pos)
+        return int(key, 2)
 
     def set_head(self, num: int) -> bool:
         """Finds the content element with the given binary number

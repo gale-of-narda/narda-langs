@@ -1,5 +1,7 @@
 import csv
 import json
+import logging
+import logging.config
 
 from typing import Tuple, List, Optional
 from pathlib import Path
@@ -7,6 +9,15 @@ from pathlib import Path
 from scripts.parser_entities import Mapping, Dichotomy, Tree, Mask, Element
 from scripts.parser_dataclasses import Alphabet, GeneralRules, SpecialRules
 from scripts.parser_dataclasses import Dialect, Feature, Stance
+
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
+
+logging.basicConfig(
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    level=logging.DEBUG,
+    datefmt="%H:%M:%S",
+)
 
 
 class Parser:
@@ -19,7 +30,7 @@ class Parser:
         return
 
     def _load_params(self, path: str = "") -> None:
-        """Creates the components and and loads the alphabet,
+        """Creates the components and loads the alphabet,
         general and special rules from the given path.
         """
         self.loader = Loader(self)
@@ -65,11 +76,19 @@ class Loader:
         self.path = parser.path
         return
 
+    def _load_json(self, path: str) -> str:
+        path = Path(self.path + path)
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            logger.exception("Failed to load parameters from {path}")
+            raise e
+        return data
+
     def load_alphabet(self, level: int) -> Alphabet:
         """Loads the alphabet and extracts the four types of characters."""
-        path = Path(self.path + "params/alphabet.json")
-        with path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
+        data = self._load_json("params/alphabet.json")
         params = Alphabet(
             # Intrinsically meaningful strings
             # Content strings come in classes and are represented by their class
@@ -92,9 +111,7 @@ class Loader:
 
     def load_grules(self, level: int) -> GeneralRules:
         """Loads the general rules that define the syntax of the language."""
-        path = Path(self.path + "params/rules_general.json")
-        with path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
+        data = self._load_json("params/rules_general.json")
         params = GeneralRules(
             struct=data["Structure"][level],
             heads=data["Heads"][level],
@@ -112,9 +129,7 @@ class Loader:
         """Loads the special rules that set the character permissions
         for each node of the trees.
         """
-        path = Path(self.path + "params/rules_special.json")
-        with path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
+        data = self._load_json("params/rules_special.json")
         params = SpecialRules(
             tperms=data["Terminal permissions"],
             tneuts=data["Terminal neutrals"],
@@ -126,9 +141,7 @@ class Loader:
         of functions and arguments.
         """
         # Loading the dialect parameters
-        path = Path(self.path + "params/dialect.json")
-        with path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
+        data = self._load_json("params/dialect.json")
 
         # Loading the features with functions and arguments
         tables = {"untyped": [], "typed": []}
@@ -306,22 +319,22 @@ class Mapper:
         mapping = self.mapping
 
         # Iterating the input string with the separator appropriate for the level
-        string_iterator = prep_string.split(sep) if sep else [s for s in prep_string]
+        string_iterator = prep_string.split(sep) if sep else list(prep_string)
         for n, string in enumerate(string_iterator):
-            print(f"Working with '{string}'")
+            logger.debug(f"Working with '{string}'")
 
             # Dealing with complex embedding depth controllers
             if string == popper and mapping.cur_depth > 0:
                 if self._close_clause():
                     mapping.pop()
                     elem = mapping.stack[-1]
-                    print(f"=> Depth decreased to {mapping.cur_depth}")
+                    logger.debug(f"=> Depth decreased to {mapping.cur_depth}")
                 else:
                     return False
             elif string == pusher:
                 mapping.push()
                 self.parser.masker.construct(mapping.cur_depth)
-                print(f"=> Depth increased to {mapping.cur_depth}")
+                logger.debug(f"=> Depth increased to {mapping.cur_depth}")
                 continue
 
             else:
@@ -337,7 +350,7 @@ class Mapper:
                 continue
             elif string != popper:
                 mapping.record_element(elem)
-                print(f"=> Assigned the stance {elem.stance}")
+                logger.debug(f"=> Assigned the stance {elem.stance}")
 
             # If the end of the string is reached but depth is still positive,
             # add provisional popper until depth zero is reached
@@ -360,7 +373,7 @@ class Mapper:
         # Equivalent mappings are shifted together or not at all,
         # compounds from closest to farthest to the target mask
         # and only if they fit (given lembs and perms).
-        print(f"Shifting {dich}")
+        logger.debug(f"Shifting {dich}")
         # Get keys for both masks
         mask_from, mask_to = dich.masks if not invert else dich.masks[::-1]
         elems = self.mapping.stack
@@ -387,7 +400,7 @@ class Mapper:
                     new_stance.rep[dich.d] = mask_to.rep + n
                     fit = self._fit_element(elems[i], new_stance, dich.d)
                     if fit:
-                        print(
+                        logger.debug(
                             f"-> Shifted {elems[i]} from {old_stance} to {new_stance}"
                         )
                         slot_in_process = True
@@ -397,9 +410,11 @@ class Mapper:
                         # unsuccessfully if any other elem fails
                         res = not slot_in_process
                         if not res:
-                            print(f"=> No place to shift {elems[i]} along {dich}")
+                            logger.warning(
+                                f"=> No place to shift {elems[i]} along {dich}"
+                            )
                         return res
-                num += -1
+                num -= 1
             slots_shifted += 1
 
         # Reset the dichotomies downstream of the mask &
@@ -439,12 +454,14 @@ class Mapper:
             neut = Element(neut_mask.tneuts[depth], op_stance, self.level)
             fit = self._fit_element(neut, op_stance, term_only=True)
             if not fit:
-                print(f"-> Couldn't fit neutral element {neut} with stance {op_stance}")
+                logger.warning(
+                    f"-> Couldn't fit neutral element {neut} with stance {op_stance}"
+                )
                 return False
             else:
                 # Insert the neutral to the right or to the left of the original
                 # depending on rev and whether it is the right or left sibling
-                print(f"-> Inserting {neut} with stance {neut_stance}")
+                logger.debug(f"-> Inserting {neut} with stance {neut_stance}")
                 slot = op_stance.pos[-1] if not neut_mask.rev else 1 - op_stance.pos[-1]
                 insert_index = min(indices) if slot == 0 else max(indices)
                 elems.insert(insert_index + slot, neut)
@@ -455,7 +472,6 @@ class Mapper:
         """Checks that every mapping complies with terminal permissions.
         Only applicable to the zeroth level.
         """
-        return True
         if self.level != 0:
             return True
 
@@ -474,7 +490,9 @@ class Mapper:
             perm = perms[min(self.mapping.cur_depth, len(perms) - 1)][priority]
 
             if e.head.content not in perm and rep not in perm:
-                print(f"-> No permission for '{e.head}' of class '{rep}' at {e.stance}")
+                logger.error(
+                    f"-> No permission for '{e.head}' of class '{rep}' at {e.stance}"
+                )
                 return False
 
         return True
@@ -487,7 +505,7 @@ class Mapper:
         for d in range(len(self.parser.masker.masks[depth])):
             dich = self.parser.masker.get_dichs(e.stance, depth)
             decision = self._decide_dichotomy(e, dich)
-            if type(decision) is bool:
+            if isinstance(decision, bool):
                 return decision
             else:
                 e.stance.pos.append(decision[0])
@@ -499,7 +517,7 @@ class Mapper:
 
     def _decide_dichotomy(
         self, e: Element, dich: Dichotomy, forbid_shift: bool = False
-    ) -> Tuple(int, int) | bool:
+    ) -> Tuple[int, int] | bool:
         """Produces the decision for the given element and dichotomy, linking
         the former to either first or second mask of the latter.
         """
@@ -508,8 +526,8 @@ class Mapper:
 
         # Conditions of fit for the 1st and 2nd masks
         conds = [
-            any([not dich.pointer == 1, not dich.ret]),
-            any([dich.pointer == 0, not dich.skip]),
+            any((not dich.pointer == 1, not dich.ret)),
+            any((dich.pointer == 0, not dich.skip)),
         ]
         # Results of fit for the masks: tuple(pos, rep)
         comps = [
@@ -519,8 +537,8 @@ class Mapper:
 
         # Skip to the second mask if the breaker count is positive
         if self.mapping.breaks[depth] > 0:
-            self.mapping.breaks[depth] += -1
-            print(f"-> Skipping {dich.masks[0]}")
+            self.mapping.breaks[depth] -= 1
+            logger.debug(f"-> Skipping {dich.masks[0]}")
             if not comps[1]:
                 return False
             # Breaking is permanent, so fitting to the first mask is now forbidden
@@ -531,7 +549,7 @@ class Mapper:
         for i, br in enumerate(self.alphabet.breakers):
             if e.head.content in br:
                 self.mapping.breaks[depth] += i + 1
-                print("=> Breaker recorded")
+                logger.debug("=> Breaker recorded")
                 return True
 
         # Determine the fit the normal way
@@ -555,7 +573,7 @@ class Mapper:
                 return self._decide_dichotomy(e, dich, forbid_shift=True)
             # If all fails
             else:
-                print(f"=> Couldn't decide {dich} for {e}")
+                logger.warning(f"=> Couldn't decide {dich} for {e}")
                 return False
 
         # Attempt closure if the obtained fit flips the pointer to 1
@@ -576,9 +594,9 @@ class Mapper:
         num_strings = ["1st", "2nd"]
         content = f"-> Fitting {e.head.content} to the {num_strings[fit]}"
         if dich.split:
-            print(f"{content} mask {new_mask}")
+            logger.debug(f"{content} mask {new_mask}")
         else:
-            print(f"{content} mask {old_mask} → {new_mask}")
+            logger.debug(f"{content} mask {old_mask} → {new_mask}")
 
         return (pos, rev)
 
@@ -591,11 +609,11 @@ class Mapper:
         dich = self.parser.masker.masks[depth][0][0]
 
         if not self._close_dichotomies(dich):
-            print("Failed to close the dichotomies")
+            logger.error("Failed to close the dichotomies")
             return False
 
         if not self._validate_mapping(elems):
-            print("Failed to validate the mapping")
+            logger.error("Failed to validate the mapping")
             return False
 
         return True
@@ -612,14 +630,14 @@ class Mapper:
         invert = bool(dich.pointer or 0)
         for dich in dichs:
             if dich.nb:
-                res *= self._shift_nonbinary_mappings(dich, invert=invert)
+                res = res and self._shift_nonbinary_mappings(dich, invert=invert)
             if dich.terminal:
-                res *= self._fill_empty_terminals(dich)
+                res = res and self._fill_empty_terminals(dich)
         return bool(res)
 
     def _compare_with_mask(
         self, e: Element, mask: Mask, split: bool
-    ) -> Tuple(int, int) | None:
+    ) -> Optional[Tuple[int, int]]:
         """Produces the movement for the mask required to fit the element
         with its current stance. If no fit is possible, return None.
         """
@@ -638,18 +656,18 @@ class Mapper:
             else:
                 return None
 
-        # Otherwise start going throgh the literals one-by-one
+        # Otherwise start going through the literals one-by-one
         singular = len(mask.literals) == 1
         incr = 1 if singular and mask.active else 0
         while any(
-            [
+            (
                 # Current string, unless the mask is singular and was already fit
                 incr == 0 and not (singular and mask.active),
                 # Next string, if the mask is singular or was already fit
                 incr == 1 and (singular or mask.active),
                 # Next string(s), unless a non-optional string is getting skipped
                 incr > 0 and not singular and mask.optionals[mask.move(incr - 1)[0]],
-            ]
+            )
         ):
             if mask.match(rep_str, incr):
                 mov = mask.move(incr)
@@ -694,17 +712,17 @@ class Mapper:
 
         prepared_string = self.alphabet.prepare(input_string)
         self.prepared_string = prepared_string
-        print(f"Parsing '{input_string}' as '{prepared_string}'")
+        logger.info(f"Parsing '{input_string}' as '{prepared_string}'")
 
         # Apply general rules to produce the mapping
         res = self._produce_mapping(prepared_string)
         if not res:
-            print("Failed to produce the mapping")
+            logger.error("Failed to produce the mapping")
             return False
 
         # Do the backward-looking corrections and _apply the special rules
         if self._close_clause():
-            print(f"Successfully parsed '{prepared_string}'")
+            logger.info(f"Successfully parsed '{prepared_string}'")
             return self.mapping
         else:
             return False
@@ -783,7 +801,7 @@ class Interpreter:
         if fits:
             tree.ctype = fits[0]
         else:
-            print("Could not determine the composition type")
+            logger.warning("Could not determine the composition type")
         # Do the same for all embedded trees
         for node in [n for n in tree.all_nodes if n.complexes]:
             for c in node.complexes:
@@ -799,6 +817,8 @@ class Interpreter:
         # Find features for the tree nodes and their compounds
         nodes = [n for n in tree.all_nodes if n.terminal and n.content]
         for node in nodes:
+            if not node.content or not node.content[0].head.content:
+                continue
             content = node.content[0].head.content[0]
             cc_index = self.parser.alphabet.get_index(content)
             if not cc_index:
@@ -824,25 +844,31 @@ class Interpreter:
         """
         if tree is None:
             tree = self.tree
-        string = prefix
-        string += f"{tree.ctype} '{self.parser.mapper.prepared_string}'"
+        logger.info(f"{prefix}{tree.ctype} '{self.parser.mapper.prepared_string}'")
         nodes = [n for n in tree.all_nodes if n.content and n.terminal]
         # Describe the elements mapped to the nodes themselves and their compounds
         featureless = []
         for node in nodes:
             if node.feature:
-                string += f"\n{prefix}"
-                string += f"-> '{node.content[0]}' — {node.feature.function_name}: "
-                string += f"{node.feature.argument_name} "
+                msg = "%s-> '%s' — %s: %s"
+                args = [
+                    prefix,
+                    node.content[0],
+                    node.feature.function_name,
+                    node.feature.argument_name,
+                ]
                 if verbose:
-                    string += f"— {node.feature.argument_description} "
+                    msg += " — %s"
+                    args.append(node.feature.argument_description)
+                logger.info(msg, *args)
             else:
                 featureless.append(node)
-        print(string)
         # Note nodes with content but no discerned features
         featureless_content = ", ".join([str(n) for n in featureless])
         if featureless_content:
-            print(f"{prefix}=> Features lacking interpretation: {featureless_content}")
+            logger.warning(
+                f"{prefix}=> Features lacking interpretation: {featureless_content}"
+            )
         # Describe the embedded complexes
         for node in [n for n in tree.all_nodes if n.complexes]:
             for c in node.complexes:
