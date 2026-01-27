@@ -1,195 +1,123 @@
-﻿pos;rep;cpos;crep;content_class;priority;index;function_name;argument_name;argument_description
-000;000;;;C;1;0;Tense;General;Predicates without attributed temporality
-000;000;;;C;2;1;Tense;Present simple;Event-like predicates actual at the point of reference
-000;000;;;C;3;2;Tense;Present progressive;Process-like predicates actual at the point of reference
-000;000;;;C;4;8;Tense;Past simple;Event-like predicates actual before the point of reference
-000;000;;;C;5;12;Tense;Future simple;Event-like predicates actual after the point of reference
-000;000;;;C;6;16;Tense;Past progressive;Process-like predicates actual before the point of reference
-000;000;;;C;7;20;Tense;Future progressive;Process-like predicates actual after the point of reference
-001;000;;;V;1;0;Alignment;Nominative;Neutral case: stand-in for the main participant
-001;000;;;V;2;1;Alignment;Patientive;Passive direct: sufferer of action, bearer of state
-001;000;;;V;3;2;Alignment;Agentive;Active direct: producer of action, creator of state
-001;000;;;V;4;3;Alignment;Locative;Passive indirect: target, medium, or circumstance
-001;000;;;V;5;4;Alignment;Dative;Passive indirect: effect, purpose, or destination
-001;000;;;V;6;5;Alignment;Instrumental;Active indirect: tool, performer, or partner
-001;000;;;V;7;6;Alignment;Genitive;Active indirect: cause, reason, or origin
-001;001;;;V;1;0;Alignment;Nominative;Neutral case: stand-in for the main participant
-001;001;;;V;2;1;Alignment;Patientive;Passive direct: sufferer of action, bearer of state
-001;001;;;V;3;2;Alignment;Agentive;Active direct: producer of action, creator of state
-001;001;;;V;4;3;Alignment;Locative;Passive indirect: target, medium, or circumstance
-001;001;;;V;5;4;Alignment;Dative;Passive indirect: effect, purpose, or destination
-001;001;;;V;6;5;Alignment;Instrumental;Active indirect: tool, performer, or partner
-001;001;;;V;7;6;Alignment;Genitive;Active indirect: cause, reason, or origin
-111;000;;;V;1;0;Part of speech;Stative;Complete statements
-111;000;;;V;2;1;Part of speech;Predicative;"Non-acting predicates; states"
-111;000;;;V;3;2;Part of speech;Subjective;"Non-acting subjects; modes"
-111;000;;;V;4;3;Part of speech;Verb;"Independent acting predicates; actions"
-111;000;;;V;5;4;Part of speech;Adverb;"Dependent predicates; properties of actions"
-111;000;;;V;6;5;Part of speech;Noun;"Independent acting subjects; things"
-111;000;;;V;7;6;Part of speech;Adjective;"Dependent subjects; properties of things"
-111;001;;;V;1;0;Part of speech;Stative;Complete statements
-111;001;;;V;2;1;Part of speech;Predicative;"Non-acting predicates; states"
-111;001;;;V;3;2;Part of speech;Subjective;"Non-acting subjects; modes"
-111;001;;;V;4;3;Part of speech;Verb;"Independent acting predicates; actions"
-111;001;;;V;5;4;Part of speech;Adverb;"Dependent predicates; properties of actions"
-111;001;;;V;6;5;Part of speech;Noun;"Independent acting subjects; things"
-111;001;;;V;7;6;Part of speech;Adjective;"Dependent subjects; properties of things"
-110;000;;;C;1;0;Aspect;Generic;Abstract, indivisible predication
-110;000;;;C;2;3;Aspect;Monadic atelic;Predication that happens or endures in an atelic manner
-110;000;;;C;3;4;Aspect;Iterative atelic;Predication that repeats in an atelic manner
-110;000;;;C;4;6;Aspect;Monadic perfective;One-time telic predication that successfully terminated
-110;000;;;C;5;10;Aspect;Monadic imperfective;One-time telic predication that did not terminate
-110;000;;;C;6;14;Aspect;Iterative perfective;Repeating telic predication that successfully terminated
-110;000;;;C;7;18;Aspect;Iterative imperfective;Repeating telic predication that did not terminate
-100;010;;;C;1;1;Postfix base;Impersonal entity;"Pictures and experience; material or immaterial impressions"
-100;010;;;C;2;2;Postfix base;Personal entity;"Actors and performance; identity of animated, actant subjects"
-100;010;;;C;3;3;Postfix base;Impersonal idea;"Plans and templates; types and shapes for objects to fit"
-100;010;;;C;4;4;Postfix base;Personal idea;"Desires and drives; impulses and aspirations that direct the will"
-100;010;;;C;5;5;Postfix base;Impersonal direct sphere;"Ownership and places; fixations and spatial localities of action"
-100;010;;;C;6;6;Postfix base;Impersonal direct situation;"Events and periods; temporal localities and opportunities for action"
-100;010;;;C;7;7;Postfix base;Impersonal direct design;"Borders and interfaces; conduits of close interaction"
-100;010;;;C;8;8;Postfix base;Impersonal direct activity;"Metrics and quantities; changes in size and reach"
-100;010;;;C;9;9;Postfix base;Personal direct sphere;"Hierarchies and qualities; development and evolution of systems"
-100;010;;;C;10;10;Postfix base;Personal direct situation;"Interpretation and recreation; systems of meaning and value"
-100;010;;;C;11;11;Postfix base;Personal direct design;"Teams and collectives; what unites and directs agents"
-100;010;;;C;12;12;Postfix base;Personal direct activity;"Roles and duties; functionality in productive activity"
-100;010;;;C;13;13;Postfix base;Impersonal oblique sphere;"Resources and production; the makeup and usability of things"
-100;010;;;C;14;14;Postfix base;Impersonal oblique situation;"Actual and potential activity; emergence of action in time"
-100;010;;;C;15;15;Postfix base;Impersonal oblique design;"Orders and rules; systemic and institutional collectives"
-100;010;;;C;16;16;Postfix base;Impersonal oblique activity;"Applications of force; potential for change and resisting change"
-100;010;;;C;17;17;Postfix base;Personal oblique sphere;"Data and knowledge; symbolic and semantic contents"
-100;010;;;C;18;18;Postfix base;Personal oblique situation;"Reasons and purposes; actionable meaning of things"
-100;010;;;C;19;19;Postfix base;Personal oblique design;"Meaning and signs; media of expression and modeling"
-100;010;;;C;20;20;Postfix base;Personal oblique activity;"Causes and effects; experiments, actions and dependencies"
-101;010;;;V;1;1;Postfix accident;Passive abstract;"Mode or receiver; what is affected by action"
-101;010;;;V;2;2;Postfix accident;Active abstract;"State or operator; what causes and performs action"
-101;010;;;V;3;3;Postfix accident;Passive nominative;"Activity or region; locality, temporality, and process of action"
-101;010;;;V;4;4;Postfix accident;Passive associative;"Method or destination; path of action towards its end"
-101;010;;;V;5;5;Postfix accident;Active nominative;"Object or support; media, factors, and participants of action"
-101;010;;;V;6;6;Postfix accident;Active associative;"Quality or origin; conditons for and effectiveness of action"
-010;010;;;C;1;1;Prefix base;Objective quality;Intensity, degree, or stage
-010;010;;;C;2;2;Prefix base;Subjective quality;Degree of fit to its own class, type, or template
-010;010;;;C;3;3;Prefix base;Objective identity;Conceptual similarity to another referent
-010;010;;;C;4;4;Prefix base;Subjective identity;Degree of fit to expectations from it or its kind
-010;010;;;C;5;5;Prefix base;Objective position;Spatial location or direction
-010;010;;;C;6;6;Prefix base;Objective propriety;Temporal location or direction
-010;010;;;C;7;7;Prefix base;Objective quantity;Number, composition, or uniformity
-010;010;;;C;8;8;Prefix base;Objective homogeneity;Uniformity, variety, or coherence
-010;010;;;C;9;9;Prefix base;Subjective position;Degree of social or other deontic achievement or respect
-010;010;;;C;10;10;Prefix base;Subjective propriety;Degree of fit or aptitude, orientation in semantic temporality
-010;010;;;C;11;11;Prefix base;Subjective quantity;Postive or negative influence, alignment or support
-010;010;;;C;12;12;Prefix base;Subjective homogeneity;Figurative or deontic quality or value
-010;010;;;C;13;13;Prefix base;Objective structure;Empirical order and structure, set and element relationship
-010;010;;;C;14;14;Prefix base;Objective success;Precedence or role in causal or other temporal relationship
-010;010;;;C;15;15;Prefix base;Objective distinction;Quality of fullness, wholeness, or internal harmony
-010;010;;;C;16;16;Prefix base;Objective interrelation;Degree of causal or other temporal interconnection
-010;010;;;C;17;17;Prefix base;Subjective structure;Social distinctions related to age and sex
-010;010;;;C;18;18;Prefix base;Subjective success;Familial or other hereditary position
-010;010;;;C;19;19;Prefix base;Subjective distinction;Hierarchical position or degree of reverence
-010;010;;;C;20;20;Prefix base;Subjective interrelation;Experience and willingness to engage in relationships
-011;010;;;V;1;1;Prefix accident;Augmentative;Higher, senior, more general qualities
-011;010;;;V;2;2;Prefix accident;Diminutive;Lower, junior, more specific qualities
-011;010;;;V;3;3;Prefix accident;Superlative positive;Progressive, extensive, explicit qualities
-011;010;;;V;4;4;Prefix accident;Comparative positive;Dextral, intensive, aggregate qualities
-011;010;;;V;5;5;Prefix accident;Superlative negative;Regressive, compact, implicit qualities
-011;010;;;V;6;6;Prefix accident;Comparative negative;Sinistral, limited, particular qualities
-010;000;000;000;C;1;1;Mood;Indicative–subjunctive;Description not subject to doubt, or a general speculation
-010;000;000;000;C;2;2;Mood;Directive–optative;Prescription justified by volition, or a factual wish
-010;000;000;000;C;3;3;Mood;Deductive–assumptive;Description that is deterministic, or a general assumption
-010;000;000;000;C;4;4;Mood;Commissive–volitive;Prescription justified by obligation, or a counterfactual wish
-010;000;000;000;C;5;5;Mood;Declarative–interrogative;Description epistemically necessary, an inqury
-010;000;000;000;C;6;7;Mood;Dubitative–interrogative;Description epistemically possible, a wonder
-010;000;000;000;C;7;9;Mood;Mandative–propositive;Prescription affirming a requirement or suggestion
-010;000;000;000;C;8;11;Mood;Permissive–propositive;Prescription affirming a permission or advice
-010;000;000;000;C;9;13;Mood;Necessitative–speculative;Description statistically necessary, a strong speculation
-010;000;000;000;C;10;15;Mood;Potentive–speculative;Description statistically possible, a weak speculation
-010;000;000;000;C;11;17;Mood;Debitive–deliberative;Prescription affirming a duty or strong deliberation
-010;000;000;000;C;12;19;Mood;Tentative–deliberative;Prescription affirming an intention or weak deliberation
-011;000;000;000;V;1;1;Evidentiality;Synthetic;What is obvious or consensual, common sense
-011;000;000;000;V;2;2;Evidentiality;Analytic;General logical and symbolic derivations
-011;000;000;000;V;3;3;Evidentiality;Synthetic a priori;Intuition derived from past or well-known events
-011;000;000;000;V;4;4;Evidentiality;Synthetic a posteriori;Intuition derived from current or new events
-011;000;000;000;V;5;5;Evidentiality;Analytic a priori;Deduction from previous knowledge
-011;000;000;000;V;6;6;Evidentiality;Analytic a posteriori;Deduction from new knowledge
-100;000;000;000;C;1;0;Tense;General;Predicates without attributed temporality
-100;000;000;000;C;2;1;Tense;Present simple;Event-like predicates actual at the point of reference
-100;000;000;000;C;3;2;Tense;Present progressive;Process-like predicates actual at the point of reference
-100;000;000;000;C;4;8;Tense;Past simple;Event-like predicates actual before the point of reference
-100;000;000;000;C;5;12;Tense;Future simple;Event-like predicates actual after the point of reference
-100;000;000;000;C;6;16;Tense;Past progressive;Process-like predicates actual before the point of reference
-100;000;000;000;C;7;20;Tense;Future progressive;Process-like predicates actual after the point of reference
-010;000;001;000;C;1;1;Connector;Participatory general;Directs the predicate to or away from the object
-010;000;001;000;C;2;2;Connector;Translative general;Directs the predicate into or outside of the object
-010;000;001;000;C;3;3;Connector;Alienable possessive;Indicates mutable possession of or by the object
-010;000;001;000;C;4;4;Connector;Inalienable possessive;Indicates immutable possession of or by the object
-010;000;001;000;C;5;5;Connector;Participatory transformative;Draws from or directs to the object the right of possession
-010;000;001;000;C;6;7;Connector;Participatory complementary;Draws from or directs to the object the benefit or value
-010;000;001;000;C;7;9;Connector;Translative transformative;Assumes or forfeits the identity or role of the object
-010;000;001;000;C;8;11;Connector;Translative complementary;Assumes or forfeits the likeness or state of the object
-010;000;001;000;C;9;13;Connector;Alienable compositional;Conveys mutable part-whole relationship
-010;000;001;000;C;10;15;Connector;Alienable elementary;Conveys mutable set-element relationship
-010;000;001;000;C;11;17;Connector;Inalienable compositional;Conveys immutable part-whole relationship
-010;000;001;000;C;12;19;Connector;Inalienable elementary;Conveys immutable set-element relationship
-011;000;001;000;V;1;1;Direction;Increasing;Upward, generally superior, senior, or more important
-011;000;001;000;V;2;2;Direction;Decreasing;Downward, generally inferior, junior, or less important
-011;000;001;000;V;3;3;Direction;Increasing perpendicular;Forward, directly superior, senior, or more important
-011;000;001;000;V;4;4;Direction;Increasing lateral;Rightward, indirectly superior, senior, or more important
-011;000;001;000;V;5;5;Direction;Decreasing perpendicular;Backward, directly inferior, junior, or less important
-011;000;001;000;V;6;6;Direction;Decreasing lateral;Leftward, indirectly inferior, junior, or less important
-001;000;001;000;V;1;0;Alignment;Nominative;Neutral case: stand-in for the main participant
-001;000;001;000;V;2;1;Alignment;Patientive;Passive direct: sufferer of action, bearer of state
-001;000;001;000;V;3;2;Alignment;Agentive;Active direct: producer of action, creator of state
-001;000;001;000;V;4;3;Alignment;Locative;Passive indirect: target, medium, or circumstance
-001;000;001;000;V;5;4;Alignment;Dative;Passive indirect: effect, purpose, or destination
-001;000;001;000;V;6;5;Alignment;Instrumental;Active indirect: tool, performer, or partner
-001;000;001;000;V;7;6;Alignment;Genitive;Active indirect: cause, reason, or origin
-100;000;111;000;C;1;1;Class;Picture;Non-analyzed impressions, images, sensations
-100;000;111;000;C;2;2;Class;Idea;Fully analyzed mental objects, thoughts, templates
-100;000;111;000;C;3;3;Class;Thing;Specific aggregates, concrete everyday objects and entities
-100;000;111;000;C;4;4;Class;Person;Specific agents, people, creatures, anthropomorphic objects
-100;000;111;000;C;5;5;Class;Instance;Elements of sets, copies, times or attempts in regard to action
-100;000;111;000;C;6;7;Class;Figure;Visible physical shapes, geometric objects and patterns
-100;000;111;000;C;7;9;Class;Part;Pieces, portions, components of objects and structures
-100;000;111;000;C;8;11;Class;Number;Numerical or quantifiable traits, formal objects
-100;000;111;000;C;9;13;Class;Mass;Undifferentiated aggregates, substances, materials
-100;000;111;000;C;10;15;Class;Construction;Differentiated aggregates, structures, systems
-100;000;111;000;C;11;17;Class;Participant;Actors, tools, resources that participate, produce or suffer the action
-100;000;111;000;C;12;19;Class;Symbol;Models, signs, words that relate to other objects
-101;000;111;000;V;1;1;Type;State;Inactant but temporal predicates: what it is like to be the entity
-101;000;111;000;V;2;2;Type;Mode;Inactant and atemporal subjects: roles taken on by entities
-101;000;111;000;V;3;3;Type;Action;Actant and temporal descriptors: what an object does
-101;000;111;000;V;4;4;Type;Method;Descriptors of actions and states: how it is performed
-101;000;111;000;V;5;5;Type;Thing;Actant but atemporal subjects: entities as they are
-101;000;111;000;V;6;6;Type;Characteristic;Descriptors of things and modes: what properties the subject has
-111;000;111;000;V;1;0;Part of speech;Stative;Complete statements
-111;000;111;000;V;2;1;Part of speech;Predicative;"Non-acting predicates; states"
-111;000;111;000;V;3;2;Part of speech;Subjective;"Non-acting subjects; modes"
-111;000;111;000;V;4;3;Part of speech;Verb;"Independent acting predicates; actions"
-111;000;111;000;V;5;4;Part of speech;Adverb;"Dependent predicates; properties of actions"
-111;000;111;000;V;6;5;Part of speech;Noun;"Independent acting subjects; things"
-111;000;111;000;V;7;6;Part of speech;Adjective;"Dependent subjects; properties of things"
-100;000;110;000;C;1;1;Article;Indefinite instance;Non-specific instance selection: every instance possible, not necessary
-100;000;110;000;C;2;2;Article;Definite instance;Specific instance selection: not every instance possible or necessary
-100;000;110;000;C;3;3;Article;Indefinite subclass;Non-specific subclass selection: every subclass possible, not necessary
-100;000;110;000;C;4;4;Article;Definite subclass;Specific subclass selection: not every subclass possible or necessary
-100;000;110;000;C;5;5;Article;Exhaustive instance;Universal selection: every instance is included
-100;000;110;000;C;6;7;Article;Exhausted instance;Empty selection: no instance is included
-100;000;110;000;C;7;9;Article;Exclusive instance;Unique selection: only this instance
-100;000;110;000;C;8;11;Article;Excluded instance;Inverse unique selection: every instance but this one
-100;000;110;000;C;9;13;Article;Exhaustive subclass;Universal selection: every subclass is included
-100;000;110;000;C;10;15;Article;Exhausted subclass;Empty selection: no subclass is included
-100;000;110;000;C;11;17;Article;Exclusive subclass;Unique selection: only this subclass
-100;000;110;000;C;12;19;Article;Excluded subclass;Inverse unique selection: every subclass but this one
-011;000;110;000;V;1;1;Discourse;Common;Things already mentioned or of general knowledge
-011;000;110;000;V;2;2;Discourse;Special;Things just mentioned or not expected to be known
-011;000;110;000;V;3;3;Discourse;Familiar;Speaker is familiar, listener is not necessarily so
-011;000;110;000;V;4;4;Discourse;Inquiring;Speaker thinks the listener is familiar, says nothing about themselves
-011;000;110;000;V;5;5;Discourse;Unfamiliar;Speaker is not familiar, listener is possibly so
-011;000;110;000;V;6;6;Discourse;Secretive;Speaker thinks the listener is not familiar, says nothing about themselves
-010;000;110;000;C;1;0;Aspect;Generic;Abstract, indivisible predication
-010;000;110;000;C;2;3;Aspect;Monadic atelic;Predication that happens or endures in an atelic manner
-010;000;110;000;C;3;4;Aspect;Iterative atelic;Predication that repeats in an atelic manner
-010;000;110;000;C;4;6;Aspect;Monadic perfective;One-time telic predication that successfully terminated
-010;000;110;000;C;5;10;Aspect;Monadic imperfective;One-time telic predication that did not terminate
-010;000;110;000;C;6;14;Aspect;Iterative perfective;Repeating telic predication that successfully terminated
-010;000;110;000;C;7;18;Aspect;Iterative imperfective;Repeating telic predication that did not terminate
+﻿pos;rep;cpos;crep;content_class;priority;index;function_name;argument_gloss;argument_name;argument_description
+000;000;;;C;1;0;Tense;TGEN;General;Predicates without attributed temporality
+000;000;;;C;2;1;Tense;PRS;Present simple;Event-like predicates actual at the point of reference
+000;000;;;C;3;2;Tense;PRSP;Present progressive;Process-like predicates actual at the point of reference
+000;000;;;C;4;8;Tense;PST;Past simple;Event-like predicates actual before the point of reference
+000;000;;;C;5;12;Tense;FUT;Future simple;Event-like predicates actual after the point of reference
+000;000;;;C;6;16;Tense;PSTP;Past progressive;Process-like predicates actual before the point of reference
+000;000;;;C;7;20;Tense;FUTP;Future progressive;Process-like predicates actual after the point of reference
+001;000;;;V;1;0;Alignment;NOM;Nominative;Neutral case: stand-in for the main participant
+001;000;;;V;2;1;Alignment;PAT;Patientive;Passive direct: sufferer of action, bearer of state
+001;000;;;V;3;2;Alignment;AGT;Agentive;Active direct: producer of action, creator of state
+001;000;;;V;4;3;Alignment;LOC;Locative;Passive indirect: target, medium, or circumstance
+001;000;;;V;5;4;Alignment;DAT;Dative;Passive indirect: effect, purpose, or destination
+001;000;;;V;6;5;Alignment;INS;Instrumental;Active indirect: tool, performer, or partner
+001;000;;;V;7;6;Alignment;GEN;Genitive;Active indirect: cause, reason, or origin
+001;001;;;V;1;0;Alignment;NOM;Nominative;Neutral case: stand-in for the main participant
+001;001;;;V;2;1;Alignment;PAT;Patientive;Passive direct: sufferer of action, bearer of state
+001;001;;;V;3;2;Alignment;AGT;Agentive;Active direct: producer of action, creator of state
+001;001;;;V;4;3;Alignment;LOC;Locative;Passive indirect: target, medium, or circumstance
+001;001;;;V;5;4;Alignment;DAT;Dative;Passive indirect: effect, purpose, or destination
+001;001;;;V;6;5;Alignment;INS;Instrumental;Active indirect: tool, performer, or partner
+001;001;;;V;7;6;Alignment;GEN;Genitive;Active indirect: cause, reason, or origin
+111;000;;;V;1;0;Part of speech;STAT;Stative;Complete statements
+111;000;;;V;2;1;Part of speech;PRED;Predicative;"Non-acting predicates; states"
+111;000;;;V;3;2;Part of speech;SUBJ;Subjective;"Non-acting subjects; modes"
+111;000;;;V;4;3;Part of speech;VERB;Verb;"Independent acting predicates; actions"
+111;000;;;V;5;4;Part of speech;ADV;Adverb;"Dependent predicates; properties of actions"
+111;000;;;V;6;5;Part of speech;NOUN;Noun;"Independent acting subjects; things"
+111;000;;;V;7;6;Part of speech;ADJ;Adjective;"Dependent subjects; properties of things"
+111;001;;;V;1;0;Part of speech;STAT;Stative;Complete statements
+111;001;;;V;2;1;Part of speech;PRED;Predicative;"Non-acting predicates; states"
+111;001;;;V;3;2;Part of speech;SUBJ;Subjective;"Non-acting subjects; modes"
+111;001;;;V;4;3;Part of speech;VERB;Verb;"Independent acting predicates; actions"
+111;001;;;V;5;4;Part of speech;ADV;Adverb;"Dependent predicates; properties of actions"
+111;001;;;V;6;5;Part of speech;NOUN;Noun;"Independent acting subjects; things"
+111;001;;;V;7;6;Part of speech;ADJ;Adjective;"Dependent subjects; properties of things"
+110;000;;;C;1;0;Aspect;NGEN;Generic;Abstract, indivisible predication
+110;000;;;C;2;3;Aspect;MASS;Monadic atelic;Predication that happens or endures in an atelic manner
+110;000;;;C;3;4;Aspect;UNLIM;Iterative atelic;Predication that repeats in an atelic manner
+110;000;;;C;4;6;Aspect;SG;Monadic perfective;One-time telic predication that successfully terminated
+110;000;;;C;5;10;Aspect;PRT;Monadic imperfective;One-time telic predication that did not terminate
+110;000;;;C;6;14;Aspect;PL;Iterative perfective;Repeating telic predication that successfully terminated
+110;000;;;C;7;18;Aspect;PAU;Iterative imperfective;Repeating telic predication that did not terminate
+100;010;;;C;1;1;Postfix base;0;Impersonal entity;"Pictures and experience; material or immaterial impressions"
+100;010;;;C;2;2;Postfix base;0;Personal entity;"Actors and performance; identity of animated, actant subjects"
+100;010;;;C;3;3;Postfix base;0;Impersonal idea;"Plans and templates; types and shapes for objects to fit"
+100;010;;;C;4;4;Postfix base;0;Personal idea;"Desires and drives; impulses and aspirations that direct the will"
+100;010;;;C;5;5;Postfix base;0;Impersonal direct sphere;"Ownership and places; fixations and spatial localities of action"
+100;010;;;C;6;6;Postfix base;0;Impersonal direct situation;"Events and periods; temporal localities and opportunities for action"
+100;010;;;C;7;7;Postfix base;0;Impersonal direct design;"Borders and interfaces; conduits of close interaction"
+100;010;;;C;8;8;Postfix base;0;Impersonal direct activity;"Metrics and quantities; changes in size and reach"
+100;010;;;C;9;9;Postfix base;0;Personal direct sphere;"Hierarchies and qualities; development and evolution of systems"
+100;010;;;C;10;10;Postfix base;0;Personal direct situation;"Interpretation and recreation; systems of meaning and value"
+100;010;;;C;11;11;Postfix base;0;Personal direct design;"Teams and collectives; what unites and directs agents"
+100;010;;;C;12;12;Postfix base;0;Personal direct activity;"Roles and duties; functionality in productive activity"
+100;010;;;C;13;13;Postfix base;0;Impersonal oblique sphere;"Resources and production; the makeup and usability of things"
+100;010;;;C;14;14;Postfix base;0;Impersonal oblique situation;"Actual and potential activity; emergence of action in time"
+100;010;;;C;15;15;Postfix base;0;Impersonal oblique design;"Orders and rules; systemic and institutional collectives"
+100;010;;;C;16;16;Postfix base;0;Impersonal oblique activity;"Applications of force; potential for change and resisting change"
+100;010;;;C;17;17;Postfix base;0;Personal oblique sphere;"Data and knowledge; symbolic and semantic contents"
+100;010;;;C;18;18;Postfix base;0;Personal oblique situation;"Reasons and purposes; actionable meaning of things"
+100;010;;;C;19;19;Postfix base;0;Personal oblique design;"Meaning and signs; media of expression and modeling"
+100;010;;;C;20;20;Postfix base;0;Personal oblique activity;"Causes and effects; experiments, actions and dependencies"
+101;010;;;V;1;1;Postfix accident;0;Passive abstract;"Mode or receiver; what is affected by action"
+101;010;;;V;2;2;Postfix accident;0;Active abstract;"State or operator; what causes and performs action"
+101;010;;;V;3;3;Postfix accident;0;Passive nominative;"Activity or region; locality, temporality, and process of action"
+101;010;;;V;4;4;Postfix accident;0;Passive associative;"Method or destination; path of action towards its end"
+101;010;;;V;5;5;Postfix accident;0;Active nominative;"Object or support; media, factors, and participants of action"
+101;010;;;V;6;6;Postfix accident;0;Active associative;"Quality or origin; conditons for and effectiveness of action"
+010;010;;;C;1;1;Prefix base;0;Objective quality;Intensity, degree, or stage
+010;010;;;C;2;2;Prefix base;0;Subjective quality;Degree of fit to its own class, type, or template
+010;010;;;C;3;3;Prefix base;0;Objective identity;Conceptual similarity to another referent
+010;010;;;C;4;4;Prefix base;0;Subjective identity;Degree of fit to expectations from it or its kind
+010;010;;;C;5;5;Prefix base;0;Objective position;Spatial location or direction
+010;010;;;C;6;6;Prefix base;0;Objective propriety;Temporal location or direction
+010;010;;;C;7;7;Prefix base;0;Objective quantity;Number, composition, or uniformity
+010;010;;;C;8;8;Prefix base;0;Objective homogeneity;Uniformity, variety, or coherence
+010;010;;;C;9;9;Prefix base;0;Subjective position;Degree of social or other deontic achievement or respect
+010;010;;;C;10;10;Prefix base;0;Subjective propriety;Degree of fit or aptitude, orientation in semantic temporality
+010;010;;;C;11;11;Prefix base;0;Subjective quantity;Postive or negative influence, alignment or support
+010;010;;;C;12;12;Prefix base;0;Subjective homogeneity;Figurative or deontic quality or value
+010;010;;;C;13;13;Prefix base;0;Objective structure;Empirical order and structure, set and element relationship
+010;010;;;C;14;14;Prefix base;0;Objective success;Precedence or role in causal or other temporal relationship
+010;010;;;C;15;15;Prefix base;0;Objective distinction;Quality of fullness, wholeness, or internal harmony
+010;010;;;C;16;16;Prefix base;0;Objective interrelation;Degree of causal or other temporal interconnection
+010;010;;;C;17;17;Prefix base;0;Subjective structure;Social distinctions related to age and sex
+010;010;;;C;18;18;Prefix base;0;Subjective success;Familial or other hereditary position
+010;010;;;C;19;19;Prefix base;0;Subjective distinction;Hierarchical position or degree of reverence
+010;010;;;C;20;20;Prefix base;0;Subjective interrelation;Experience and willingness to engage in relationships
+011;010;;;V;1;1;Prefix accident;0;Augmentative;Higher, senior, more general qualities
+011;010;;;V;2;2;Prefix accident;0;Diminutive;Lower, junior, more specific qualities
+011;010;;;V;3;3;Prefix accident;0;Superlative positive;Progressive, extensive, explicit qualities
+011;010;;;V;4;4;Prefix accident;0;Comparative positive;Dextral, intensive, aggregate qualities
+011;010;;;V;5;5;Prefix accident;0;Superlative negative;Regressive, compact, implicit qualities
+011;010;;;V;6;6;Prefix accident;0;Comparative negative;Sinistral, limited, particular qualities
+010;000;000;000;C;1;0;Tense;TGEN;General;Predicates without attributed temporality
+010;000;000;000;C;2;1;Tense;PRS;Present simple;Event-like predicates actual at the point of reference
+010;000;000;000;C;3;2;Tense;PRSP;Present progressive;Process-like predicates actual at the point of reference
+010;000;000;000;C;4;8;Tense;PST;Past simple;Event-like predicates actual before the point of reference
+010;000;000;000;C;5;12;Tense;FUT;Future simple;Event-like predicates actual after the point of reference
+010;000;000;000;C;6;16;Tense;PSTP;Past progressive;Process-like predicates actual before the point of reference
+010;000;000;000;C;7;20;Tense;FUTP;Future progressive;Process-like predicates actual after the point of reference
+001;000;001;000;V;1;0;Alignment;NOM;Nominative;Neutral case: stand-in for the main participant
+001;000;001;000;V;2;1;Alignment;PAT;Patientive;Passive direct: sufferer of action, bearer of state
+001;000;001;000;V;3;2;Alignment;AGT;Agentive;Active direct: producer of action, creator of state
+001;000;001;000;V;4;3;Alignment;LOC;Locative;Passive indirect: target, medium, or circumstance
+001;000;001;000;V;5;4;Alignment;DAT;Dative;Passive indirect: effect, purpose, or destination
+001;000;001;000;V;6;5;Alignment;INS;Instrumental;Active indirect: tool, performer, or partner
+001;000;001;000;V;7;6;Alignment;GEN;Genitive;Active indirect: cause, reason, or origin
+111;000;111;000;V;1;0;Part of speech;STAT;Stative;Complete statements
+111;000;111;000;V;2;1;Part of speech;PRED;Predicative;"Non-acting predicates; states"
+111;000;111;000;V;3;2;Part of speech;SUBJ;Subjective;"Non-acting subjects; modes"
+111;000;111;000;V;4;3;Part of speech;VERB;Verb;"Independent acting predicates; actions"
+111;000;111;000;V;5;4;Part of speech;ADV;Adverb;"Dependent predicates; properties of actions"
+111;000;111;000;V;6;5;Part of speech;NOUN;Noun;"Independent acting subjects; things"
+111;000;111;000;V;7;6;Part of speech;ADJ;Adjective;"Dependent subjects; properties of things"
+010;000;110;000;C;1;0;Aspect;NGEN;Generic;Abstract, indivisible predication
+010;000;110;000;C;2;3;Aspect;MASS;Monadic atelic;Predication that happens or endures in an atelic manner
+010;000;110;000;C;3;4;Aspect;UNLIM;Iterative atelic;Predication that repeats in an atelic manner
+010;000;110;000;C;4;6;Aspect;SG;Monadic perfective;One-time telic predication that successfully terminated
+010;000;110;000;C;5;10;Aspect;PRT;Monadic imperfective;One-time telic predication that did not terminate
+010;000;110;000;C;6;14;Aspect;PL;Iterative perfective;Repeating telic predication that successfully terminated
+010;000;110;000;C;7;18;Aspect;PAU;Iterative imperfective;Repeating telic predication that did not terminate

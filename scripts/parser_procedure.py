@@ -36,7 +36,7 @@ class Parser:
         self.alphabet = self.loader.load_alphabet(self.level)
         self.grules = self.loader.load_grules(self.level)
         self.srules = self.loader.load_srules(self.level)
-        self.dialect = self.loader.load_dialect()
+        self.dialect = self.loader.load_dialect(self.level)
         self.masker = Masker(self)
         self.mapper = Mapper(self)
         self.interpreter = Interpreter(self)
@@ -135,7 +135,7 @@ class Loader:
         )
         return params
 
-    def load_dialect(self) -> Dialect:
+    def load_dialect(self, level: int) -> Dialect:
         """Loads the typed and untyped feature files that contain the descriptions
         of functions and arguments.
         """
@@ -165,7 +165,7 @@ class Loader:
                     tables[t].append(new_feature)
 
         params = Dialect(
-            ctypes=data["Composition types"],
+            ctypes=data["Composition types"][level],
             untyped=tables["untyped"],
             typed=tables["typed"],
         )
@@ -784,17 +784,29 @@ class Interpreter:
         if tree is None:
             tree = self.tree
         fits = []
-        ctypes = self.dialect.ctypes
         # Try different types one by one
+        # Types specific for the depth level go first, general types last
+        if str(tree.depth) in self.dialect.ctypes:
+            ctypes = self.dialect.ctypes[str(tree.depth)] | self.dialect.ctypes[""]
+        else:
+            ctypes = self.dialect.ctypes[""]
         for ctype in ctypes:
             fit = True
+            # If the type relates to trees embedded in nodes with the defined stance,
+            # first exclude it if the given tree stance does not match it
+            if "cpos" in ctypes[ctype]:
+                if tree.stance is None or tree.stance.pos != ctypes[ctype]["cpos"]:
+                    fit = False
+            if "crep" in ctypes[ctype]:
+                if tree.stance is None or tree.stance.rep != ctypes[ctype]["crep"]:
+                    fit = False
             # Every type has conditions for nodes of different ranks
-            for rank in ctypes[ctype]:
-                nodes = [n for n in tree.all_nodes if n.rank == int(rank)]
+            for r, rank in enumerate(ctypes[ctype]["Ranks"]):
+                nodes = [n for n in tree.all_nodes if n.rank == r]
                 min_num = min([node.num for node in nodes])
                 # Conditions place limits on the number of nodes in the rank
                 # that have any content
-                for i, perm in enumerate(ctypes[ctype][rank]):
+                for i, perm in enumerate(rank):
                     hits = [n for n in nodes if n.num - min_num == i and n.content]
                     conds = [
                         perm not in ("*", "+", "-") and len(hits) > int(perm),
@@ -846,20 +858,20 @@ class Interpreter:
         return
 
     def describe(
-        self, tree: Optional[Tree] = None, verbose: bool = False, prefix: str = str()
+        self, tree: Optional[Tree] = None, verbose: bool = False, prefix: str = "·"
     ) -> None:
         """Prints out a summary of interpreted features currently loaded
         into the tree.
         """
         if tree is None:
             tree = self.tree
-        logger.info(f"{prefix}{tree.ctype} '{self.parser.mapper.prepared_string}'")
+        logger.info(f"{prefix} {tree.ctype} '{self.parser.mapper.prepared_string}'")
         nodes = [n for n in tree.all_nodes if n.content and n.terminal]
         # Describe the elements mapped to the nodes themselves and their compounds
         featureless = []
         for node in nodes:
             if node.feature:
-                msg = "%s-> '%s' — %s: %s"
+                msg = "%s> '%s' — %s: %s"
                 args = [
                     prefix,
                     node.content[0],
@@ -875,11 +887,11 @@ class Interpreter:
         # Note nodes with content but no discerned features
         featureless_content = ", ".join([str(n) for n in featureless])
         if featureless_content:
-            logger.warning(
-                f"{prefix}=> Features lacking interpretation: {featureless_content}"
+            logger.info(
+                f"{prefix}>> Features lacking interpretation: {featureless_content}"
             )
         # Describe the embedded complexes
         for node in [n for n in tree.all_nodes if n.complexes]:
             for c in node.complexes:
-                self.describe(c, prefix=prefix + "· ")
+                self.describe(c, prefix=prefix + "·")
         return

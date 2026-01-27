@@ -1,7 +1,16 @@
 {
-    "Composition types": {
-        "Proform": {"1": "*+-*"},
-        "Conjunction": {"1": "*-+*"},
-        "Content word": {"1": "*++*"}
-    }
+    "Composition types": [
+        {"": {
+            "Proform": {"Ranks": ["", "*+-*"]},
+            "Conjunction": {"Ranks": ["", "*-+*"]},
+            "Content word": {"Ranks": ["", "*++*"]}
+            },
+        "1": {
+            "Modulator": {"Ranks": ["", "-*1-"], "cpos": [0, 0, 0]},
+            "Connector": {"Ranks": ["", "11--"], "cpos": [0, 0, 1]},
+            "Classifier": {"Ranks": ["", "--11"], "cpos": [1, 1, 1]},
+            "Determiner": {"Ranks": ["", "-1*-"], "cpos": [1, 1, 0]}
+            }
+        }
+    ]
 }
