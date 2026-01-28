@@ -442,7 +442,8 @@ class Tree:
         arrow = header if depth == 0 or top or last_sib else "├"
 
         st = prefix + arrow + "─" + repr(node)
-        st += f" ·> {str(node.feature or "")}" if features and node.terminal else ""
+        if features and node.feature and node.terminal:
+         st += f" > {str(node.feature or '')}"
         st += "\n"
 
         for ch in node.children:
@@ -457,7 +458,7 @@ class Tree:
                 st += self.draw(cd, depth, "⤷", True, features, all_nodes)
 
         return st
-        
+
     def embed_compound(self, node: Node) -> None:
         """Adds a copy of the subtree originating from the node of the given number
         to the mapped compounds list of the node.

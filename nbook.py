@@ -19,7 +19,7 @@ def _(Parser):
 
 @app.cell
 def _(parser):
-    input_string = "mán-àve"
+    input_string = "ránu<àve"
     parser.process(input_string)
     #for rank in parser.masker.masks[0]:
     #    for dich in rank:

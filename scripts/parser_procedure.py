@@ -146,6 +146,7 @@ class Loader:
                         priority=int(line["priority"]),
                         index=int(line["index"]),
                         function_name=line["function_name"],
+                        argument_gloss=line["argument_gloss"],
                         argument_name=line["argument_name"],
                         argument_description=line["argument_description"],
                     )
@@ -205,8 +206,8 @@ class Masker:
                     right_mask.depth = depth - cur_depth
                     # Neutral elements only for the terminal masks
                     if d == 0:
-                        left_mask.tneuts = self.tneuts[p : p + 2][0][0]
-                        right_mask.tneuts = self.tneuts[p : p + 2][1][0]
+                        left_mask.tneuts = self.tneuts[p : p + 2][0]
+                        right_mask.tneuts = self.tneuts[p : p + 2][1]
 
                     dich = Dichotomy(d=dich_num - d - 1, nb=nbs[d])
                     dich.terminal = d == 0
@@ -467,10 +468,11 @@ class Mapper:
 
         for filling in to_fill:
             indices, neut_mask, e = filling
+            if not neut_mask.tneuts[depth]:
+                continue
             op_stance = e.stance.copy()
             op_stance.pos[-1] = 1 - op_stance.pos[-1]
             g = self.parser.alphabet.get_grapheme(neut_mask.tneuts[depth])
-            g.base.order = e.head.content.order + 1
             neut = Element(g, op_stance, self.level)
             fit = self._fit_element(neut, op_stance, term_only=True)
             if not fit:
@@ -484,6 +486,9 @@ class Mapper:
                 logger.debug(f"-> Inserting {neut} with stance {op_stance}")
                 slot = op_stance.pos[-1] if not neut_mask.rev else 1 - op_stance.pos[-1]
                 insert_index = min(indices) if slot == 0 else max(indices)
+                neut.head.content.base.order = (
+                    elems[insert_index].head.content.base.order + slot - 1
+                )
                 elems.insert(insert_index + slot, neut)
 
         return True

@@ -83,9 +83,9 @@
 010;010;;;C;14;14;Prefix base;0;Objective success;Precedence or role in causal or other temporal relationship
 010;010;;;C;15;15;Prefix base;0;Objective distinction;Quality of fullness, wholeness, or internal harmony
 010;010;;;C;16;16;Prefix base;0;Objective interrelation;Degree of causal or other temporal interconnection
-010;010;;;C;17;17;Prefix base;0;Subjective structure;Social distinctions related to age and sex
+010;010;;;C;17;17;Prefix base;0;Subjective structure;Hierarchical position or degree of reverence
 010;010;;;C;18;18;Prefix base;0;Subjective success;Familial or other hereditary position
-010;010;;;C;19;19;Prefix base;0;Subjective distinction;Hierarchical position or degree of reverence
+010;010;;;C;19;19;Prefix base;0;Subjective distinction;Social distinctions related to age and sex
 010;010;;;C;20;20;Prefix base;0;Subjective interrelation;Experience and willingness to engage in relationships
 011;010;;;V;1;1;Prefix accident;0;Augmentative;Higher, senior, more general qualities
 011;010;;;V;2;2;Prefix accident;0;Diminutive;Lower, junior, more specific qualities

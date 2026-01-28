@@ -224,6 +224,7 @@ class Feature:
     priority: int
     index: int
     function_name: str
+    argument_gloss: str
     argument_name: str
     argument_description: str
 
