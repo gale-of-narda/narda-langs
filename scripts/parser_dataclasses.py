@@ -67,15 +67,16 @@ class Alphabet:
 
     def prepare(self, st: str) -> str:
         """Removes non-alphabetic characters and makes the replacements."""
+        lst = st.lower()
         # Replace the special strings as defined in the alphabet
         reps = self.substitutions
-        replaced_string = [reps[ch] if ch in reps else ch for ch in st]
+        replaced_string = [reps[ch] if ch in reps else ch for ch in lst]
         replaced_string = "".join(replaced_string)
 
         # Erase the non-alphabetic strings from the string
         masked = [ch for ch in replaced_string if ch in self.lookup.keys()]
 
-        prepared_string = "".join(masked).lower()
+        prepared_string = "".join(masked)
 
         return prepared_string
 
