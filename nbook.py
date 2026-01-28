@@ -19,7 +19,7 @@ def _(Parser):
 
 @app.cell
 def _(parser):
-    input_string = "kemérb"
+    input_string = "mán-àve"
     parser.process(input_string)
     #for rank in parser.masker.masks[0]:
     #    for dich in rank:
@@ -31,20 +31,14 @@ def _(parser):
 
 @app.cell
 def _(parser):
-    print(parser.interpreter.tree)
     print([e.stance for e in parser.mapping.elems])
+    parser.interpreter.draw_tree(all_nodes=True, features=True)
     return
 
 
 @app.cell
 def _(parser):
-    #parser.interpreter.tree.all_nodes
-    parser.interpreter.describe(verbose=False)
-    return
-
-
-@app.cell
-def _():
+    parser.interpreter.describe()
     return
 
 

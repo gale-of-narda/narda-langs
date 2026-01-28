@@ -11,6 +11,7 @@
             "Classifier": {"Ranks": ["", "--11"], "cpos": [1, 1, 1]},
             "Determiner": {"Ranks": ["", "-1*-"], "cpos": [1, 1, 0]}
             }
-        }
+        },
+        {}
     ]
 }

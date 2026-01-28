@@ -2,7 +2,7 @@ from math import log
 
 from typing import Dict, Tuple, List, Optional
 
-from scripts.parser_dataclasses import Stance
+from scripts.parser_dataclasses import Stance, Grapheme, Feature
 
 
 class Mapping:
@@ -244,6 +244,46 @@ class Mask:
 
         return literals, optionals
 
+    def compare(self, e: Element, split: bool) -> Optional[Tuple[int, int]]:
+        """Produces the movement for the mask required to fit the element
+        with its current stance. If no fit is possible, return None.
+        """
+        # Check if the representation of the candidate string fits the given mask
+        # First check if a complex element can be fit
+        if e.complex and self.demb is not None and self.demb != -1:
+            if e.stance.depth > self.demb - 1:
+                return None
+
+        # Bypass positional matching if split-set fitting is applied
+        if split:
+            if self.match(e, ignore_pos=True):
+                return (self.pos, self.rep)
+            else:
+                return None
+
+        # Otherwise start going through the literals one-by-one
+        singular = len(self.literals) == 1
+        incr = 1 if singular and self.active else 0
+        while any(
+            (
+                # Current string, unless the mask is singular and was already fit
+                incr == 0 and not (singular and self.active),
+                # Next string, if the mask is singular or was already fit
+                incr == 1 and (singular or self.active),
+                # Next string(s), unless a non-optional string is getting skipped
+                incr > 0 and not singular and self.optionals[self.move(incr - 1)[0]],
+            )
+        ):
+            if self.match(e, incr):
+                mov = self.move(incr)
+                # Check that we aren't adding compounds beyond the restriction
+                if mov[1] <= (self.lemb or 0) or self.lemb == -1:
+                    # print(mask, mask.lemb, mask.rep, mov)
+                    return mov
+            incr += 1
+
+        return None
+
     def move(self, step: int, inplace: bool = False) -> Optional[Tuple[int, int]]:
         """Changes the position of the cursor in the mask for the given number
         of steps forward. Loops back and increases the repetition counter
@@ -261,15 +301,16 @@ class Mask:
             return None
         return (new_pos, new_rep)
 
-    def match(self, rep_str: str, pos: int = 0, ignore_pos: bool = False) -> bool:
+    def match(self, e: Element, pos: int = 0, ignore_pos: bool = False) -> bool:
         """Checks if the given string fits the element at the given position."""
         # If freeze is True, fitting to the mask is forbidden
+        aclass = e.head.content.aclass
         if self.freeze:
             return False
         if ignore_pos:
-            return any(rep_str in m for lits in self.literals for m in lits)
+            return any(aclass in m for lits in self.literals for m in lits)
         target_pos = self.move(pos)[0]
-        return any(rep_str in m for m in self.literals[target_pos])
+        return any(aclass in m for m in self.literals[target_pos])
 
     def subtract(self, pos_delta: int = 0, rep_delta: int = 0) -> None:
         """Subtracts the given number of rep and pos, limited by zero."""
@@ -297,11 +338,16 @@ class Tree:
 
     def __str__(self) -> str:
         st = f"{repr(self)}: {self.ctype or 'Undefined composition type'}"
-        if self.stance:
-            st += f" at {self.stance}"
-        st += "\n"
-        st += self._draw(self.root)
         return st
+
+    @property
+    def working_string(self) -> str:
+        """String representation of the graphemes in elements mapped to the tree."""
+        graphemes = []
+        comps = [e for c in self.root.compounds for e in c.content]
+        for e in self.root.content + comps:
+            graphemes.append(e.head.content)
+        return "".join([str(g) for g in graphemes])
 
     def _populate(self, node: Node) -> None:
         """Realizes the defined structure by creating the appropriate number of nodes
@@ -332,36 +378,6 @@ class Tree:
             for ch in node.children:
                 self._populate(ch)
         return
-
-    def _draw(self, node: Node, depth: int = 0, header: str = "└", top=False) -> str:
-        """Draws the structure of the tree to be printed."""
-        anc = node.parent
-        ancs_last = []
-        while anc is not None:
-            is_last = anc.parent is None or anc is anc.parent.children[-1]
-            ancs_last.append(is_last)
-            anc = anc.parent
-        ancs_last = list(reversed(ancs_last))
-
-        if len(ancs_last) < depth:
-            ancs_last = [True] * (depth - len(ancs_last)) + ancs_last
-
-        prefix = "".join("  " if is_last else "│ " for is_last in ancs_last)
-
-        last_sib = node.parent is None or node is node.parent.children[-1]
-        arrow = header if depth == 0 or top or last_sib else "├"
-
-        st = prefix + arrow + "─" + repr(node) + "\n"
-
-        for ch in node.children:
-            st += self._draw(ch, depth + 1)
-        for cx in node.complexes:
-            st += prefix + "⤷─" + repr(cx) + "\n"
-            st += cx._draw(cx.root, depth + 2, top=True)
-        for cd in node.compounds:
-            st += self._draw(cd, depth, "⤷", top=True)
-
-        return st
 
     def _get_subtree(self, target: Optional[int] = None) -> Tree | Node:
         """Creates a structural copy of the tree and returns either that copy
@@ -397,6 +413,51 @@ class Tree:
         nodes: List[Node] = self.root.downstream
         return sorted(nodes, key=lambda node: node.num)
 
+    def draw(
+        self,
+        node: Optional[Node] = None,
+        depth: int = 0,
+        header: str = "└",
+        top: bool = False,
+        features: bool = False,
+        all_nodes: bool = False,
+    ) -> str:
+        """Draws the structure of the tree to be printed."""
+        if node is None:
+            node = self.root
+        anc = node.parent
+        ancs_last = []
+        while anc is not None:
+            is_last = anc.parent is None or anc is anc.parent.children[-1]
+            ancs_last.append(is_last)
+            anc = anc.parent
+        ancs_last = list(reversed(ancs_last))
+
+        if len(ancs_last) < depth:
+            ancs_last = [True] * (depth - len(ancs_last)) + ancs_last
+
+        prefix = "".join("  " if is_last else "│ " for is_last in ancs_last)
+
+        last_sib = node.parent is None or node is node.parent.children[-1]
+        arrow = header if depth == 0 or top or last_sib else "├"
+
+        st = prefix + arrow + "─" + repr(node)
+        st += f" ·> {str(node.feature or "")}" if features and node.terminal else ""
+        st += "\n"
+
+        for ch in node.children:
+            if ch.content or all_nodes:
+                st += self.draw(ch, depth + 1, "└", True, features, all_nodes)
+        for cx in node.complexes:
+            if cx.root.content or all_nodes:
+                st += prefix + "⤷─" + repr(cx) + "\n"
+                st += cx.draw(cx.root, depth + 2, "└", True, features, all_nodes)
+        for cd in node.compounds:
+            if cd.content or all_nodes:
+                st += self.draw(cd, depth, "⤷", True, features, all_nodes)
+
+        return st
+        
     def embed_compound(self, node: Node) -> None:
         """Adds a copy of the subtree originating from the node of the given number
         to the mapped compounds list of the node.
@@ -475,25 +536,28 @@ class Node:
         self.sibnum: int = 0
         self.terminal: bool = False
         self._stance: Stance = Stance()
-        self.parent: Node | None = None
+        self.parent: Optional[Node] = None
         self.children: List[Node] = []
         self.compounds: List[Node] = []
         self.complexes: List[Tree] = []
-        self.content: List[str] = []
-        self.feature = None
+        self.content: List[Element] = []
+        self.feature: Optional[Feature] = None
         return
 
     def __repr__(self) -> str:
-        content = [s for s in self.content if isinstance(s, Element)]
-        return f"N({self.num}): {''.join(str(s) for s in content)}"
+        num = f"N({self.num}): "
+        content = f"{''.join(str(s) for s in self.content)}" if self.content else ""
+        return num + content
 
     def __str__(self) -> str:
         return repr(self)
 
     def map_element(self, e: Element) -> None:
-        """Adds the given element to the content of the node."""
-        self.content.append(e)
-        return
+        """Sets the given element as the content of the node."""
+        if not self.content or not self.terminal:
+            self.content.append(e)
+        else:
+            raise Exception(f"Tried to rewrite the content of terminal node {self}")
 
     @property
     def stance(self) -> Stance:
@@ -538,30 +602,39 @@ class Element:
     """
 
     def __init__(
-        self, content: str | List[Element], stance: Stance, level: int
+        self, content: Grapheme | List[Grapheme], stance: Stance, level: int
     ) -> None:
-        self.content = content
-        self.stance = stance
-        self.level = level
-        self.rep: str = str()
+        self.content: Grapheme | List[Grapheme] = content
+        self.stance: Stance = stance
+        self.level: int = level
         self.complex: bool = isinstance(self.content, List)
-        self.head = self
+        self.head: Element = self
         return
 
     def __repr__(self) -> str:
         if self.complex:
             return repr(self.head)
         else:
-            return self.content
+            return repr(self.content)
 
     def __str__(self) -> str:
-        return str(repr(self))
+        return repr(self)
+
+    @property
+    def view(self):
+        """String representation of the graphemes in the element's content."""
+        return "".join([str(g) for g in self.content])
 
     @property
     def num(self) -> int:
         """Returns the number represented in the binary form by the stance."""
         key = "".join(str(s) for s in self.stance.pos)
         return int(key, 2)
+
+    @property
+    def order(self) -> int:
+        """The order of the element is that of its head's content grapheme."""
+        return self.head.content.order
 
     def set_head(self, num: int) -> bool:
         """Finds the content element with the given binary number

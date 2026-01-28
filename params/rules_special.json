@@ -1,13 +1,13 @@
 {
     "Terminal permissions": [
-        [["wlrmnsfchtpŧk", ""]],
-        [["V", "ayoeuı"]], 
-        [["lrmnzsvfȷcxhdtbpđŧgk", "lrmn"]], 
-        [["ayoeuı"]], 
-        [["lrmnzsvfȷcxhdtbpđŧgk", "lrmn"]], 
-        [["V"]], 
-        [["wlrmnsfchtpŧk", ""]], 
-        [["V", "ayoeuı"]]
+        [["wlrmnsfchtpŧk", ""], ["w", ""]],
+        [["V", "ayoeuı"], ["ayoeuı", ""]], 
+        [["lrmnzsvfȷcxhdtbpđŧgk", "lrmn"], ["lrmnzsvfȷcxhdtbpđŧgk", ""]], 
+        [["ayoeuı"], ["ayoeuı", ""]], 
+        [["lrmnzsvfȷcxhdtbpđŧgk", "lrmn"], ["lrmnzsvfȷcxhdtbpđŧgk", ""]], 
+        [["V"], ["V", ""]], 
+        [["wlrmnsfchtpŧk", ""], ["w", ""]], 
+        [["V", "ayoeuı"], ["ayoeuı", ""]]
     ],
     "Terminal neutrals": [
         [["w", "w"]],

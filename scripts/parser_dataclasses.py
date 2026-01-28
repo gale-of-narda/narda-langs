@@ -10,65 +10,120 @@ class Alphabet:
     Has functions for removing non-alphabetic and representing alphabetic characters.
     """
 
-    content: Dict[str, str]
-    equivalents: Dict[str, str]
-    wildcards: List[str]
-    separators: List[str]
-    breakers: List[List[str]]
-    embedders: List[List[str]]
-    bclasses: List[str]
+    bases: Dict[str, Dict]
+    modifiers: Dict[str, Dict[str, List[str]]]
+    substitutions: Dict[str, str]
+
+    def _build_dicts(self, level: int) -> None:
+        """Adds to the alphabet various dictionaries of characters
+        useful on different stages of string parsing.
+        """
+
+        def unpack(d) -> Dict:
+            # Creates a flat dictionary of characters with all parameters encoded
+            items = {}
+            for cat in d:
+                for subcat in d[cat]:
+                    for aclass in d[cat][subcat]:
+                        values = d[cat][subcat][aclass]
+                        if isinstance(values, List):
+                            for q, vals in enumerate(values):
+                                for i, val in enumerate(vals):
+                                    items[val] = {
+                                        "Category": cat,
+                                        "Subcategory": subcat,
+                                        "Class": aclass,
+                                        "Quality": q,
+                                        "Index": i,
+                                    }
+                        else:
+                            for i, val in enumerate(values):
+                                items[val] = {
+                                    "Category": cat,
+                                    "Subcategory": subcat,
+                                    "Class": aclass,
+                                    "Quality": 0,
+                                    "Index": i,
+                                }
+            return items
+
+        # Removing characters not on the given level
+        for cat in self.bases["Guiding"]:
+            self.bases["Guiding"][cat] = self.bases["Guiding"][cat][level]
+        for cat in self.modifiers:
+            for subcat in self.modifiers[cat]:
+                self.modifiers[cat][subcat] = self.modifiers[cat][subcat][level]
+
+        self.content = self.bases["Content"]
+        self.wildcards = self.bases["Guiding"]["Wildcard"]
+        self.separators = self.bases["Guiding"]["Separator"]
+        self.embedders = self.bases["Guiding"]["Embedder"]
+        self.breakers = self.modifiers["Breaker"]
+
+        d = {"Base": self.bases, "Modifier": self.modifiers}
+        self.lookup = unpack(d)
+
+        return
 
     def prepare(self, st: str) -> str:
         """Removes non-alphabetic characters and makes the replacements."""
         # Replace the special strings as defined in the alphabet
-        reps = self.equivalents
+        reps = self.substitutions
         replaced_string = [reps[ch] if ch in reps else ch for ch in st]
         replaced_string = "".join(replaced_string)
 
         # Erase the non-alphabetic strings from the string
-        content = "".join(self.content.values())
-        separators = "".join(self.separators)
-        breakers = "".join(self.breakers)
-        embedders = "".join(self.embedders)
-        full_mask = content + separators + breakers + embedders
-        masked = [ch for ch in replaced_string if ch in full_mask]
+        masked = [ch for ch in replaced_string if ch in self.lookup.keys()]
 
-        # Strip separators from both ends
-        ss = "".join(masked).strip(separators)
-
-        # Remove breakers after characters other than breaking classes
-        # or embedders
-        for i, ch in enumerate(ss):
-            if i > 0 and ch in breakers:
-                st = self.represent(ss[i - 1])
-                if st not in self.bclasses + self.embedders:
-                    ss = ss[:i] + ss[i + 1 :]
-
-        prepared_string = ss.lower()
+        prepared_string = "".join(masked).lower()
 
         return prepared_string
 
-    def represent(self, ch: str, level: int = 0) -> str:
-        """Replaces the input character with its alphabetic representation."""
-        if level != 0:
-            return ch.upper()
-        else:
-            if any(ch in nc for nc in self.breakers + self.embedders):
-                return ch
-            for key, val in self.content.items():
-                if ch in val:
-                    return key
-            raise ValueError(f"No representation for '{ch}' on level {level}")
-
-    def get_index(self, ch: str) -> Tuple[str, int] | None:
-        """Searches for the given character in content classes and returns
-        the index of first occurrence, or None if nothing is found.
+    def symbolize(self, prepared_string: str) -> List[Symbol]:
+        """Tranforms the input string into a list of symbols matched
+        with the character parameters in the alphabet.
         """
-        for cc in self.content:
-            index = self.content[cc].find(ch)
-            if index >= 0:
-                return cc, index
-        return None
+        symbols = []
+        for i, ch in enumerate(prepared_string):
+            if ch in self.lookup:
+                d = self.lookup[ch]
+                symbol = Symbol(ch, *d.values(), i)
+                symbols.append(symbol)
+        return symbols
+
+    def graphemize(self, symbols: List[Symbol]) -> List[Grapheme]:
+        graphemes = []
+        for s in symbols:
+            if s.acat == "Base":
+                g = Grapheme(base=s)
+                if s.aclass == "Embedder":
+                    if s.content == self.embedders[0]:
+                        g.is_pusher = True
+                    if s.content == self.embedders[1]:
+                        g.is_popper = True
+                graphemes.append(g)
+            elif s.acat == "Modifier" and s.aclass == graphemes[-1].aclass:
+                graphemes[-1].modifiers.append(s)
+        return graphemes
+
+    def get_grapheme(self, st: str) -> Optional[str]:
+        """Creates a grapheme based on the given base character."""
+
+        if st in [
+            k for k in self.lookup.keys() if self.lookup[k]["Category"] == "Base"
+        ]:
+            s = Symbol(st, *self.lookup[st].values())
+            g = Grapheme(base=s)
+            if s.aclass == "Embedder":
+                if s.content == self.embedders[0]:
+                    g.is_pusher = True
+                if s.content == self.embedders[1]:
+                    g.is_popper = True
+            return g
+        else:
+            raise ValueError(
+                f"Tried to create a grapheme with an illegal character {st}"
+            )
 
 
 @dataclass
@@ -218,3 +273,67 @@ class Stance:
         rep = self.rep[:lim] if lim is not None else self.rep[:]
         depth = self.depth
         return Stance(pos, rep, depth)
+
+
+@dataclass
+class Grapheme:
+    """A holder for elementary emic units of the language."""
+
+    base: Symbol
+    modifiers: List[Symbol] = field(default_factory=lambda: [])
+    is_pusher: bool = False
+    is_popper: bool = False
+
+    def __repr__(self) -> str:
+        return self.content or "Empty symbol"
+
+    def __str__(self) -> str:
+        return repr(self)
+
+    @property
+    def content(self) -> str:
+        """How the grapheme appears in writing."""
+        base = str(self.base)
+        mods = "".join([m.content for m in self.modifiers])
+        return base + mods
+
+    @property
+    def aclass(self) -> str:
+        """The class of the grapheme is that of its base symbol."""
+        return self.base.aclass
+
+    @property
+    def index(self) -> str:
+        """The index of the grapheme is that of its base symbol."""
+        return self.base.index
+
+    @property
+    def order(self) -> int:
+        """The order of the grapheme is the minimum of those of its symbols."""
+        return min([self.base.order] + [m.order for m in self.modifiers])
+
+    @property
+    def complex_role(self) -> Optional[str]:
+        """Whether the grapheme is a pusher or a popper."""
+        if self.base.aclass == "Embedder":
+            if self.base.quality == 0:
+                return "Pusher"
+            elif self.base.quality == 1:
+                return "Popper"
+        return None
+
+
+@dataclass
+class Symbol:
+    """A holder for elementary etic units of the language."""
+
+    content: str = str()
+    acat: str = str()
+    asubcat: str = str()
+    aclass: str = str()
+    quality: int = 0
+    index: int = 0
+    order: int = 0
+
+    def __repr__(self) -> str:
+        return self.content

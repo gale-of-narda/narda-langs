@@ -1,19 +1,30 @@
 {
-    "Content": {
-        "C": "wlrmnzsvfȷcxhdtbpđŧgk",
-        "V": "əayoeuı"
+    "Bases": {
+        "Content": {    
+            "C": "wlrmnzsvfȷcxhdtbpđŧgk",
+            "V": "əayoeuı"
+        },
+        "Guiding": {
+            "Wildcard": ["#", "@"],
+            "Separator": ["", " "],
+            "Embedder": [["-", "-"], [":", ";"]]
+        }
     },
-    "Equivalencies": {
+    "Modifiers": {
+        "Breaker": {
+            "V": [["̀", "́̄"], []]
+        }
+    },
+    "Substitutions": {
+        "̂": "̈́",
+        "̌": "̈̀",
+        "̃": "̈̄",
         "'": "ə",
         ">": "-",
         "<": "-",
+        "`": "-ə",
         "–": "--",
         "?": ".",
         "!": "."
-    },
-    "Wildcards": ["#", "@"],
-    "Separators": ["", " "],
-    "Breakers": [["́̀̂̌", "̄̃"], []],
-    "Embedders": [["-", "-"], [":", ";"]],
-    "Breaking classes": ["V"]
+    }
 }
