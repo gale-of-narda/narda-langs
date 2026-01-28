@@ -413,6 +413,27 @@ class Tree:
         nodes: List[Node] = self.root.downstream
         return sorted(nodes, key=lambda node: node.num)
 
+    def get_interpretable_nodes(self, complexes: bool = False) -> List[Node]:
+        """Returns terminal nodes with content. If complexes is True,
+        recursively includes lists of those for the embedded trees.
+        """
+        sorted_nodes = sorted(
+            [n for n in self.all_nodes if n.content and n.terminal],
+            key=lambda node: node.content[0].order,
+        )
+
+        out = [n for n in sorted_nodes]
+        if complexes:
+            ind = 0
+            for node in sorted_nodes:
+                for c in node.complexes:
+                    embeds = c.get_interpretable_nodes(complexes=True)
+                    out.insert(ind, embeds)
+                    ind += 1
+                ind += 1
+
+        return out
+
     def draw(
         self,
         node: Optional[Node] = None,
@@ -443,7 +464,7 @@ class Tree:
 
         st = prefix + arrow + "─" + repr(node)
         if features and node.feature and node.terminal:
-         st += f" > {str(node.feature or '')}"
+            st += f" > {str(node.feature or '')}"
         st += "\n"
 
         for ch in node.children:
@@ -451,7 +472,7 @@ class Tree:
                 st += self.draw(ch, depth + 1, "└", True, features, all_nodes)
         for cx in node.complexes:
             if cx.root.content or all_nodes:
-                st += prefix + "⤷─" + repr(cx) + "\n"
+                st += prefix + "⤷─" + str(cx) + "\n"
                 st += cx.draw(cx.root, depth + 2, "└", True, features, all_nodes)
         for cd in node.compounds:
             if cd.content or all_nodes:

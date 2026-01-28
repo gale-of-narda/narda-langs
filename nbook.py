@@ -19,7 +19,7 @@ def _(Parser):
 
 @app.cell
 def _(parser):
-    input_string = "uNohréag"
+    input_string = "-lág–ırú-mán<àve–sýd>"
     parser.process(input_string)
     #for rank in parser.masker.masks[0]:
     #    for dich in rank:
@@ -30,9 +30,9 @@ def _(parser):
 
 
 @app.cell
-def _(parser):
-    print([e.stance for e in parser.mapping.elems])
-    parser.interpreter.draw_tree(all_nodes=False, features=True)
+def _():
+    #print([e.stance for e in parser.mapping.elems])
+    #parser.draw_tree(all_nodes=False, features=True)
     return
 
 
@@ -43,7 +43,8 @@ def _(parser):
 
 
 @app.cell
-def _():
+def _(parser):
+    print(parser.gloss())
     return
 
 

@@ -6,7 +6,7 @@ import logging.config
 from typing import Tuple, List, Optional
 from pathlib import Path
 
-from scripts.parser_entities import Mapping, Dichotomy, Tree, Mask, Element
+from scripts.parser_entities import Mapping, Dichotomy, Tree, Node, Mask, Element
 from scripts.parser_dataclasses import Alphabet, GeneralRules, SpecialRules
 from scripts.parser_dataclasses import Dialect, Feature, Stance, Grapheme
 
@@ -62,6 +62,50 @@ class Parser:
         self.interpreter._interpret()
 
         return
+
+    def draw_tree(self, features: bool = False, all_nodes: bool = False) -> None:
+        """Prints out the current dichotomic tree with mapped elements."""
+        st = str(self.interpreter.tree)
+        if self.interpreter.tree.stance:
+            st += f" at {self.interpreter.tree.stance}"
+        st += "\n"
+        st += self.interpreter.tree.draw(features=features, all_nodes=all_nodes)
+        print(st)
+        return
+
+    def gloss(self, to_gloss: Optional[str | List[Node]] = None) -> None:
+        """Iterates the terminal nodes of the tree and replaces the representations
+        of their contents with the gloss strings defined by their features.
+        If input_string is given, processes it first.
+        """
+        if to_gloss is None:
+            items = self.interpreter.tree.get_interpretable_nodes(complexes=True)
+        elif isinstance(to_gloss, str):
+            self.process(to_gloss)
+            self.gloss()
+        elif isinstance(to_gloss, List):
+            items = to_gloss
+        else:
+            raise ValueError(f"Invalid input to gloss: {to_gloss}")
+
+        glosses, current_glossless = [], ""
+        for item in items:
+            if isinstance(item, List):
+                if current_glossless:
+                    glosses.append(f"{current_glossless}-")
+                    current_glossless = ""
+                glosses.append(f"[{self.gloss(item)}]")
+            elif item.feature.argument_gloss:
+                if current_glossless:
+                    glosses.append(f"{current_glossless}-")
+                    current_glossless = ""
+                glosses.append(f"{item.feature.argument_gloss}-")
+            else:
+                current_glossless += "".join(str(e) for e in item.content)
+
+        gloss = "".join(glosses).strip("-")
+
+        return gloss
 
 
 class Loader:
@@ -128,7 +172,6 @@ class Loader:
         """
         # Loading the dialect parameters
         data = self._load_json("params/dialect.json")
-
         # Loading the features with functions and arguments
         tables = {"untyped": [], "typed": []}
         for t in tables:
@@ -853,10 +896,7 @@ class Interpreter:
         if tree is None:
             tree = self.tree
         logger.info(f"{prefix} {tree.ctype} '{tree.working_string}'")
-        nodes = sorted(
-            [n for n in tree.all_nodes if n.content and n.terminal],
-            key=lambda node: node.content[0].order,
-        )
+        nodes = tree.get_interpretable_nodes()
         # Describe the elements mapped to the nodes themselves and their compounds
         featureless = []
         for node in nodes:
@@ -884,14 +924,4 @@ class Interpreter:
         for node in [n for n in tree.all_nodes if n.complexes]:
             for c in node.complexes:
                 self.describe(c, prefix=prefix + "·")
-        return
-
-    def draw_tree(self, features: bool = False, all_nodes: bool = False) -> None:
-        """Prints out the current dichotomic tree with mapped elements."""
-        st = str(self.tree)
-        if self.tree.stance:
-            st += f" at {self.tree.stance}"
-        st += "\n"
-        st += self.tree.draw(features=features, all_nodes=all_nodes)
-        print(st)
         return
