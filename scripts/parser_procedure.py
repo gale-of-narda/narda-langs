@@ -76,7 +76,8 @@ class Parser:
     def gloss(self, to_gloss: Optional[str | List[Node]] = None) -> None:
         """Iterates the terminal nodes of the tree and replaces the representations
         of their contents with the gloss strings defined by their features.
-        If input_string is given, processes it first.
+        If to_gloss is a string, processes it first.
+        If to_gloss is a list of nodes, glosses them.
         """
         if to_gloss is None:
             items = self.interpreter.tree.get_interpretable_nodes(complexes=True)
@@ -152,6 +153,7 @@ class Loader:
             revs=data["Reversals"][level],
             lembs=data["Compound lengths"][level],
             dembs=data["Complex depths"][level],
+            wilds=data["Wildcard slots"][level],
         )
         return grules
 
@@ -211,7 +213,10 @@ class Masker:
 
     def __init__(self, parser: Parser) -> None:
         self.parser = parser
-        self.perms, self.revs, self.dembs = parser.grules._unravel_term_params()
+        self.perms = self.parser.grules.perms
+        self.revs = self.parser.grules.revs
+        self.dembs = self.parser.grules.dembs
+        self.wilds = self.parser.grules.wilds
         self.struct = parser.grules.struct
         self.rets = parser.grules.rets
         self.skips = parser.grules.skips
@@ -241,6 +246,8 @@ class Masker:
                     right_mask.rev = self.revs[d][p : p + 2][1]
                     left_mask.demb = self.dembs[d][p : p + 2][0]
                     right_mask.demb = self.dembs[d][p : p + 2][1]
+                    left_mask.wild = self.wilds[d][p : p + 2][0]
+                    right_mask.wild = self.wilds[d][p : p + 2][1]
                     # Compound embedding only for the last dichs on rank
                     rlembs, rlds = self.lembs[::-1][d], lds[::-1][d]
                     left_mask.lemb = rlembs[p : p + 2][0] if rlds else 0
@@ -352,15 +359,46 @@ class Mapper:
         """String representation of the grapheme list loaded in the mapper."""
         return "".join([str(g) for g in self.graphemes])
 
+    def _itemize(self, st: Optional[str] = None, inplace: bool = True) -> None:
+        """Transforms the given string into a list of graphemes."""
+        if not st:
+            st = self.input_string
+        prep = self.alphabet.prepare(st)
+        symb = self.alphabet.symbolize(prep)
+        graph = self.alphabet.graphemize(symb)
+        if inplace:
+            self.graphemes = graph
+        return
+
     def _produce_mapping(self, graphemes: Optional[List[Grapheme]] = None) -> bool:
         """Creates the mapping of elements to dichotomic masks."""
+
+        def record_wildcard(self, g: Grapheme):
+            for dich in self.parser.masker.masks[self.mapping.cur_depth][-1]:
+                for mask in dich.masks:
+                    if mask.wild:
+                        stance = Stance(
+                            mask.num_key,
+                            [0] * len(mask.num_key),
+                            self.mapping.cur_depth,
+                        )
+                        e = Element(g, stance, self.mapping.cur_depth)
+                        if self._fit_element(e, force_mov=True):
+                            self.mapping.record_element(e)                            
+                            logger.debug(f"-> Fit a wildcard to {stance}")
+
         if graphemes is None:
             graphemes = self.graphemes
+
         # Iterating the input string with the separator appropriate for the level
         for n, g in enumerate(graphemes):
             logger.debug(f"Working with '{g}'")
-            # Dealing with complex embedding depth controllers
-            if g.is_popper and self.mapping.cur_depth > 0:
+            # Dealing with wildcards
+            if g.aclass == "Wildcard":
+                record_wildcard(self, g)
+                continue
+            # Dealing with complex embedding
+            elif g.is_popper and self.mapping.cur_depth > 0:
                 if self._close_clause():
                     self.parser.masker.reset_dichotomies(
                         self.mapping.cur_depth, total=True
@@ -382,7 +420,6 @@ class Mapper:
                     )
                 logger.debug(f"=> Depth increased to {self.mapping.cur_depth}")
                 continue
-
             else:
                 e = Element(g, Stance(), self.level)
 
@@ -393,7 +430,8 @@ class Mapper:
                     logger.debug("-> Early breaker accounted")
 
             # Determine the stance of the element
-            e.stance = self._determine_stance(e)
+            if e.stance == Stance():
+                e.stance = self._determine_stance(e)
 
             # Update the breaker count if a late breaker is encountered
             for mod in e.head.content.modifiers:
@@ -406,7 +444,7 @@ class Mapper:
                 return False
             elif e.stance is True:
                 continue
-            elif g.complex_role != "Popper":
+            elif not g.is_popper:
                 self.mapping.record_element(e)
             logger.debug(f"=> Assigned the stance {e.stance}")
 
@@ -551,7 +589,7 @@ class Mapper:
             cnt = cnt + 1 if e.stance.pos + e.stance.rep[:-1] == addr else 0
             addr = e.stance.pos + e.stance.rep[:-1]
 
-            rev = bool(self.grules.revs[e.num])
+            rev = bool(self.grules.revs[0][e.num])
             addrs = [e for e in elems if e.stance.pos + e.stance.rep[:-1] == addr]
 
             perms = self.srules.tperms[e.num]
@@ -560,9 +598,9 @@ class Mapper:
 
             aclass = e.head.content.aclass
             base = str(e.head.content.base)
-            if base not in perm and aclass not in perm:
+            if not any([base in perm or aclass in perm, aclass == "Wildcard"]):
                 logger.error(
-                    f"-> No permission for '{e.head}' of class '{aclass}' at {e.stance}"
+                    f"-> No permission for '{e.head}' ('{aclass}') at {e.stance}"
                 )
                 return False
 
@@ -571,8 +609,8 @@ class Mapper:
     def _determine_stance(self, e: Element) -> Stance | bool:
         """Produces the stance for the given element by deciding the dichotomies."""
         # Cycle through the ranks and determine the positions of the string for each
-        e.stance = Stance()
         depth = self.mapping.cur_depth
+        e.stance = Stance(depth=depth)
         for d in range(len(self.parser.masker.masks[depth])):
             dich = self.parser.masker.get_dichs(e.stance, depth)
             decision = self._decide_dichotomy(e, dich)
@@ -581,8 +619,6 @@ class Mapper:
             else:
                 e.stance.pos.append(decision[0])
                 e.stance.rep.append(decision[1])
-
-        e.stance.depth = depth
 
         return e.stance
 
@@ -637,6 +673,7 @@ class Mapper:
             # If all fails
             else:
                 logger.warning(f"=> Couldn't decide {dich} for {e}")
+                logger.debug(f"{self.parser.masker.masks[0]}")
                 return False
 
         # Attempt closure if the obtained fit flips the pointer to 1
@@ -700,13 +737,15 @@ class Mapper:
     def _fit_element(
         self,
         e: Element,
-        stance: Stance,
+        stance: Optional[Stance] = None,
         d: Optional[int] = None,
         term_only: bool = False,
+        force_mov: bool = False,
     ) -> bool:
-        """Records the element if it can be fit with the current stance."""
+        """Records the element if it can be fit with the given stance."""
         depth = self.mapping.cur_depth
-
+        if stance is None:
+            stance = e.stance
         for p, pos in enumerate(stance.pos):
             if (term_only and p != len(stance.pos) - 1) or (d is not None and p < d):
                 continue
@@ -714,7 +753,7 @@ class Mapper:
             dich = self.parser.masker.get_dichs(part_stance, depth)
             cur_mask = pos if not dich.rev else 1 - pos
 
-            comp = dich.masks[cur_mask].compare(e, dich.split)
+            comp = dich.masks[cur_mask].compare(e, dich.split, force_mov)
             if comp:
                 e.stance = stance
                 dich.pointer = cur_mask
@@ -732,7 +771,7 @@ class Mapper:
         self.input_string = input_string
 
         # Transform the string into a list of graphemes ready for parsing
-        self.itemize(inplace=True)
+        self._itemize(inplace=True)
         logger.info(f"Parsing '{self.input_string}' as '{self.working_string}'")
 
         # Apply general rules to produce the mapping
@@ -747,17 +786,6 @@ class Mapper:
             return self.mapping
         else:
             return False
-
-    def itemize(self, st: Optional[str] = None, inplace: bool = True) -> None:
-        """Transforms the given string into a list of graphemes."""
-        if not st:
-            st = self.input_string
-        prep = self.alphabet.prepare(st)
-        symb = self.alphabet.symbolize(prep)
-        graph = self.alphabet.graphemize(symb)
-        if inplace:
-            self.graphemes = graph
-        return
 
 
 class Interpreter:

@@ -19,20 +19,20 @@ def _(Parser):
 
 @app.cell
 def _(parser):
-    input_string = "-lág–ırú-mán<àve–sýd>"
+    input_string = "laté#us"
     parser.process(input_string)
     #for rank in parser.masker.masks[0]:
     #    for dich in rank:
-    #        print(dich, dich.preterminal, dich.terminal, dich.d)
+    #        print(dich)
     #        for mask in dich.masks:
-    #            print(mask, mask.active)
+    #            print(mask, mask.demb, mask.rev)
     return
 
 
 @app.cell
-def _():
-    #print([e.stance for e in parser.mapping.elems])
-    #parser.draw_tree(all_nodes=False, features=True)
+def _(parser):
+    print([e.stance for e in parser.mapping.elems])
+    parser.draw_tree(all_nodes=True, features=True)
     return
 
 
@@ -43,8 +43,7 @@ def _(parser):
 
 
 @app.cell
-def _(parser):
-    print(parser.gloss())
+def _():
     return
 
 

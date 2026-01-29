@@ -1,6 +1,6 @@
 from math import log
 
-from typing import Dict, Tuple, List, Optional
+from typing import Dict, List, Optional
 from dataclasses import dataclass, field
 
 
@@ -142,27 +142,36 @@ class GeneralRules:
     dembs: List[List[int]]
     perms: List[List[str]]
     lembs: List[List[List[int]]]
+    wilds: List[List[List[int]]]
 
-    def _unravel_term_params(
-        self,
-    ) -> Tuple[List[List[List[str]]], List[List[List[int]]], List[List[List[int]]]]:
-        """Creates perms, revs, dembs for each mask based on the general rules
-        as they are defined in more compact form.
+    def __post_init__(self) -> None:
+        self._unravel_term_params()
+        return
+
+    def _unravel_term_params(self) -> None:
+        """Transforms perms, revs, dembs for each mask based on the general rules
+        where they are defined in a more compact form.
         """
-        perms, revs, dembs = [self.perms], [self.revs], [self.dembs]
-        for r in range(int(log(len(perms[0]), 2))):
-            split_perms, split_revs, split_dembs = [], [], []
-            for i in range(0, len(perms[-1]), 2):
-                rev = min(revs[-1][i : i + 2]) if r < 1 else 0
-                demb = max(dembs[-1][i : i + 2])
-                perm = perms[-1][i : i + 2]
+        self.perms = [self.perms]
+        self.revs = [self.revs]
+        self.dembs = [self.dembs]
+        self.wilds = [self.wilds]
+        for r in range(int(log(len(self.perms[0]), 2))):
+            split_perms, split_revs, split_dembs, split_wilds = [], [], [], []
+            for i in range(0, len(self.perms[-1]), 2):
+                rev = min(self.revs[-1][i : i + 2]) if r == 0 else 0
+                demb = max(self.dembs[-1][i : i + 2])
+                wilds = max(self.wilds[-1][i : i + 2])
+                perm = self.perms[-1][i : i + 2]
                 split_perms.append("".join(perm[::-1] if rev else perm))
                 split_revs.append(rev)
                 split_dembs.append(demb)
-            perms.append(split_perms)
-            revs.append(split_revs)
-            dembs.append(split_dembs)
-        return perms, revs, dembs
+                split_wilds.append(wilds)
+            self.perms.append(split_perms)
+            self.revs.append(split_revs)
+            self.dembs.append(split_dembs)
+            self.wilds.append(split_wilds)
+        return
 
 
 @dataclass
@@ -212,10 +221,9 @@ class Dialect:
 
 @dataclass
 class Feature:
-    """A holder for a feature with all the parameters that describe it.
-    Ctype is None for untyped, str for typed features.
-    """
+    """A holder for a feature with all the parameters that describe it."""
 
+    # None for untyped, str for typed features
     ctype: str | None
     pos: List[int]
     rep: List[int]
@@ -313,16 +321,6 @@ class Grapheme:
     def order(self) -> int:
         """The order of the grapheme is the minimum of those of its symbols."""
         return min([self.base.order] + [m.order for m in self.modifiers])
-
-    @property
-    def complex_role(self) -> Optional[str]:
-        """Whether the grapheme is a pusher or a popper."""
-        if self.base.aclass == "Embedder":
-            if self.base.quality == 0:
-                return "Pusher"
-            elif self.base.quality == 1:
-                return "Popper"
-        return None
 
 
 @dataclass

@@ -184,6 +184,7 @@ class Mask:
         self.rev = None
         self.lemb = None
         self.demb = None
+        self.wild = None
         self.pos = None
         self.rep = 0
         self.freeze = False
@@ -244,7 +245,9 @@ class Mask:
 
         return literals, optionals
 
-    def compare(self, e: Element, split: bool) -> Optional[Tuple[int, int]]:
+    def compare(
+        self, e: Element, split: bool, force_mov: bool = False
+    ) -> Optional[Tuple[int, int]]:
         """Produces the movement for the mask required to fit the element
         with its current stance. If no fit is possible, return None.
         """
@@ -263,13 +266,13 @@ class Mask:
 
         # Otherwise start going through the literals one-by-one
         singular = len(self.literals) == 1
-        incr = 1 if singular and self.active else 0
+        incr = 1 if (singular or force_mov) and self.active else 0
         while any(
             (
                 # Current string, unless the mask is singular and was already fit
                 incr == 0 and not (singular and self.active),
                 # Next string, if the mask is singular or was already fit
-                incr == 1 and (singular or self.active),
+                incr == 1 and (singular or force_mov or self.active),
                 # Next string(s), unless a non-optional string is getting skipped
                 incr > 0 and not singular and self.optionals[self.move(incr - 1)[0]],
             )
@@ -307,6 +310,8 @@ class Mask:
         aclass = e.head.content.aclass
         if self.freeze:
             return False
+        if aclass == "Wildcard":
+            return self.wild
         if ignore_pos:
             return any(aclass in m for lits in self.literals for m in lits)
         target_pos = self.move(pos)[0]
