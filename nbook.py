@@ -13,32 +13,32 @@ def _():
 
 @app.cell
 def _(Parser):
-    parser = Parser(level=0)
+    parser = Parser(level=1)
     return (parser,)
 
 
 @app.cell
 def _(parser):
-    input_string = ["ránu<sán"]
+    input_string = "ao"
     parser.process(input_string)
-    #for rank in parser.masker.masks[0]:
+    #for rank in parser.masker.masks[1][0]:
     #    for dich in rank:
     #        print(dich)
     #        for mask in dich.masks:
-    #            print(mask, mask.demb, mask.rev)
+    #            print(mask, mask.key, mask.literals)
     return
 
 
 @app.cell
 def _(parser):
-    print([e.stance for e in parser.mappings[0].elems])
-    parser.draw_tree(parser.trees[-1], all_nodes=True, features=True)
+    print(parser.get_stances())
+    parser.draw_tree(all_nodes=True, features=True)
     return
 
 
 @app.cell
 def _(parser):
-    parser.interpreter.describe(parser.trees[-1])
+    parser.interpreter.describe()
     return
 
 

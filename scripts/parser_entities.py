@@ -307,15 +307,20 @@ class Mask:
     def match(self, e: Element, pos: int = 0, ignore_pos: bool = False) -> bool:
         """Checks if the given string fits the element at the given position."""
         # If freeze is True, fitting to the mask is forbidden
-        aclass = e.head.content.aclass
+        content = e.head.content
         if self.freeze:
             return False
-        if aclass == "Wildcard":
+        if content.aclass == "Wildcard":
             return self.wild
         if ignore_pos:
-            return any(aclass in m for lits in self.literals for m in lits)
-        target_pos = self.move(pos)[0]
-        return any(aclass in m for m in self.literals[target_pos])
+            by_class = any(content.aclass in m for lits in self.literals for m in lits)
+            by_val = any(content.lit in m for lits in self.literals for m in lits)
+            return max(by_class, by_val)
+        else:
+            target_pos = self.move(pos)[0]
+            by_class = any(content.aclass in m for m in self.literals[target_pos])
+            by_val = any(content.lit in m for m in self.literals[target_pos])
+            return max(by_class, by_val)
 
     def subtract(self, pos_delta: int = 0, rep_delta: int = 0) -> None:
         """Subtracts the given number of rep and pos, limited by zero."""

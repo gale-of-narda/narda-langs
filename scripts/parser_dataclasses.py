@@ -75,12 +75,14 @@ class Alphabet:
 
         return prepared_string
 
-    def symbolize(self, prepared_string: str) -> List[Symbol]:
+    def symbolize(self, prepared_string: str, lv: int) -> List[Symbol]:
         """Tranforms the input string into a list of symbols matched
         with the character parameters in the alphabet.
         """
         symbols = []
-        for i, ch in enumerate(prepared_string):
+        sep = self.separators[lv]
+        split_string = prepared_string.split() if sep else prepared_string
+        for i, ch in enumerate(split_string):
             if ch in self.lookup:
                 d = self.lookup[ch]
                 symbol = Symbol(ch, *d.values(), i)
@@ -300,6 +302,11 @@ class Grapheme:
         base = str(self.base)
         mods = "".join([m.content for m in self.modifiers])
         return base + mods
+    
+    @property
+    def lit(self) -> str:
+        """The string representation of the grapheme's base used for matching."""
+        return str(self.base).upper()
 
     @property
     def aclass(self) -> str:
@@ -331,4 +338,7 @@ class Symbol:
     order: int = 0
 
     def __repr__(self) -> str:
+        return self.content
+    
+    def __str__(self) -> str:
         return self.content

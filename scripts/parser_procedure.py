@@ -39,20 +39,23 @@ class Parser:
         self.grules = loader.load_grules()
         self.srules = loader.load_srules()
         self.dialect = loader.load_dialect()
-        self.masker = Masker(self)
         self.mapper = Mapper(self)
         self.interpreter = Interpreter(self)
         return
 
-    def process(self, items: List[str]) -> None:
+    def process(self, items: str | List[str]) -> None:
         """Performs the parsing procedure for the input string, commits the mapping
         to the dichotomic tree and provides the dialectic interpretation.
         """
+        self.mappings: List[Mapping] = []
+        self.trees: List[Tree] = []
+
+        if not isinstance(items, List):
+            items = [items]
+
         for input_string in items:
-            self.masker = Masker(self)
-            self.mapper = Mapper(self)
-            self.interpreter = Interpreter(self)
             # Produce the mapping
+            self.masker = Masker(self)
             mapping = self.mapper.parse(input_string)
             # Commit the mapping to the tree and interpret it
             if mapping:
@@ -72,23 +75,43 @@ class Parser:
         return
 
     def draw_tree(
-        self, tree: Tree, features: bool = False, all_nodes: bool = False
+        self,
+        tree: Optional[Tree | int] = None,
+        features: bool = False,
+        all_nodes: bool = False,
     ) -> None:
         """Prints out the given dichotomic tree with mapped elements."""
+        if tree is None:
+            tree = self.trees[0]
+        elif isinstance(tree, int):
+            tree = self.trees[tree]
+
         st = str(tree)
+
         if tree.stance:
             st += f" at {tree.stance}"
         st += "\n"
         st += tree.draw(features=features, all_nodes=all_nodes)
+
         print(st)
+
         return
 
-    def gloss(self, tree: Tree, to_gloss: Optional[str | List[Node]] = None) -> None:
+    def gloss(
+        self,
+        tree: Optional[Tree | int] = None,
+        to_gloss: Optional[str | List[Node]] = None,
+    ) -> None:
         """Iterates the terminal nodes of the tree and replaces the representations
         of their contents with the gloss strings defined by their features.
         If to_gloss is a string, processes it first.
         If to_gloss is a list of nodes, glosses them.
         """
+        if tree is None:
+            tree = self.trees[0]
+        elif isinstance(tree, int):
+            tree = self.trees[tree]
+
         if to_gloss is None:
             items = tree.get_interpretable_nodes(complexes=True)
         elif isinstance(to_gloss, str):
@@ -117,6 +140,13 @@ class Parser:
         gloss = "".join(glosses).strip("-")
 
         return gloss
+
+    def get_stances(self, mapping: Optional[Mapping | int] = None) -> List[Stance]:
+        if mapping is None:
+            mapping = self.mappings[0]
+        elif isinstance(mapping, int):
+            mapping = self.mappings[mapping]
+        return [e.stance for e in mapping.elems]
 
 
 class Loader:
@@ -311,7 +341,7 @@ class Masker:
         if out:
             return out
         else:
-            raise Exception(f"Couldn't find dichotomy by stance {stance}")
+            raise Exception(f"Could not find dichotomy by stance {stance}")
 
     def get_dichs(
         self, stance: Stance, depth: int, level: int, downstream: bool = False
@@ -325,7 +355,7 @@ class Masker:
         if out:
             return out
         else:
-            raise Exception(f"Couldn't find dichotomy by stance {stance}")
+            raise Exception(f"Could not find dichotomy by stance {stance}")
 
     def set_dichotomy(
         self, dich: Dichotomy, comp: Tuple[int, int], depth: int, level: int
@@ -381,22 +411,29 @@ class Mapper:
         """String representation of the grapheme list loaded in the mapper."""
         return "".join([str(g) for g in self.graphemes])
 
-    def _itemize(self, st: Optional[str] = None, inplace: bool = True) -> None:
+    def _itemize(
+        self, st: Optional[str] = None, inplace: bool = True
+    ) -> None | List[Grapheme]:
         """Transforms the given string into a list of graphemes."""
         if not st:
             st = self.input_string
         prep = self.parser.alphabet.prepare(st)
-        symb = self.parser.alphabet.symbolize(prep)
+        symb = self.parser.alphabet.symbolize(prep, self.parser.level)
         graph = self.parser.alphabet.graphemize(symb)
-        if inplace:
-            self.graphemes = graph
-        return
+        if graph:
+            if inplace:
+                self.graphemes = graph
+            else:
+                return graph
+        else:
+            raise ValueError(f"Could not graphemize {st}")
 
     def _produce_mapping(self, graphemes: Optional[List[Grapheme]] = None) -> bool:
         """Creates the mapping of elements to dichotomic masks."""
 
         def record_wildcard(self, g: Grapheme) -> None:
-            for dich in self.parser.masker.masks[self.mapping.cur_depth][-1]:
+            masks = self.parser.masker.masks[self.parser.level][self.mapping.cur_depth]
+            for dich in masks[-1]:
                 for mask in dich.masks:
                     if mask.wild:
                         stance = Stance(
@@ -585,7 +622,7 @@ class Mapper:
             fit = self._fit_element(neut, op_stance, None, lv, term_only=True)
             if not fit:
                 logger.warning(
-                    f"-> Couldn't fit neutral element {neut} with stance {op_stance}"
+                    f"-> Could not fit neutral element {neut} with stance {op_stance}"
                 )
                 return False
             else:
@@ -701,7 +738,7 @@ class Mapper:
                 return self._decide_dichotomy(e, dich, forbid_shift=True)
             # If all fails
             else:
-                logger.warning(f"=> Couldn't decide {dich} for {e}")
+                logger.warning(f"=> Could not decide {dich} for {e}")
                 return False
 
         # Attempt closure if the obtained fit flips the pointer to 1
@@ -936,10 +973,20 @@ class Interpreter:
                 self._interpret(c)
         return
 
-    def describe(self, tree: Tree, verbose: bool = False, prefix: str = "·") -> None:
+    def describe(
+        self,
+        tree: Optional[Tree | int] = None,
+        verbose: bool = False,
+        prefix: str = "·",
+    ) -> None:
         """Prints out a summary of interpreted features currently loaded
         into the tree.
         """
+        if tree is None:
+            tree = self.parser.trees[0]
+        elif isinstance(tree, int):
+            tree = self.parser.trees[tree]
+
         logger.info(f"{prefix} {tree.ctype} '{tree.working_string}'")
         nodes = tree.get_interpretable_nodes()
         # Describe the elements mapped to the nodes themselves and their compounds
