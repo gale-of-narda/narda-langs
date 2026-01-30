@@ -31,12 +31,15 @@ class Parser:
         self.slv: int = start_level
         self.elv: Optional[int] = end_level
         self.path: str = path
-        self._load_params(path)
         self.mappings: List[Mapping] = []
         self.trees: List[Tree] = []
         self.cur_lvl = self.slv
+        self.cur_dpt = 0
+
+        self._load_params(path)
         if self.elv is None:
             self.elv = len(self.grules.struct) - 1
+            
         return
 
     def _load_params(self, path: str = str()) -> None:
@@ -67,6 +70,18 @@ class Parser:
 
         return graph
 
+    def _flatten(self, mappings: List[Mapping]) -> List[Grapheme]:
+        """Creates an element based on the provided items and sets a head for it."""
+
+        graphemes = []
+        for m in mappings:
+            e = Element(m.elems, Stance(), self.cur_lvl)
+            for num in self.grules.heads[self.cur_lvl - 1]:
+                if e.set_head(num):
+                    graphemes.append(e.head.content)
+                    break
+        return graphemes
+
     def process(self, items: str | List[str]) -> None:
         """Performs the parsing procedure for the input string, commits the mapping
         to the dichotomic tree and provides the interpretation.
@@ -81,10 +96,15 @@ class Parser:
 
         for lvl in range(self.slv, self.elv + 1):
             self.cur_lvl = lvl
+            logger.debug(f"Level={self.cur_lvl}, items={items}")
             for item in items:
                 # Produce the mapping
                 self.masker = Masker(self)
-                graphemes = self._itemize(item)
+                if isinstance(item[0], Mapping):
+                    graphemes = self._flatten(item)
+                else:
+                    graphemes = self._itemize(item)
+                logger.debug(f"Graphemes={graphemes}")
                 mapping = self.mapper.parse(graphemes)
                 # Commit the mapping to the tree and interpret it
                 if mapping:
@@ -100,6 +120,7 @@ class Parser:
                     self._load_params(self.path)
                     logger.info(f"Failed to parse {item}")
                     return
+            items = [self.mappings]
 
         return
 
@@ -283,11 +304,12 @@ class Masker:
         self.parser: Parser = parser
         # Level > Depth > Rank > Dichotomy
         self.masks: List[List[List[List[Dichotomy]]]] = [[]]
-        self._construct(d=0, lv=parser.cur_lvl)
+        self._construct(d=0)
         return
 
-    def _construct(self, d: int, lv: int) -> None:
+    def _construct(self, d: int) -> None:
         """Creates the hierarchy of dichotomies loaded with mask pairs."""
+        lv = self.parser.cur_lvl
         struct = self.parser.grules.struct
         perms = self.parser.grules.perms
         revs = self.parser.grules.revs
@@ -351,18 +373,18 @@ class Masker:
 
         return
 
-    def _find_dichs(self, num_key: List[int], depth: int, lv: int) -> List[Dichotomy]:
+    def _find_dichs(self, num_key: List[int], depth: int) -> List[Dichotomy]:
         """Returns dichotomies whose keys start with the given one."""
-        dichs = [mp for r in self.masks[lv][depth] for mp in r]
+        dichs = [mp for r in self.masks[self.parser.cur_lvl][depth] for mp in r]
         out = []
         for dich in dichs:
             if num_key == dich.num_key[: len(num_key)]:
                 out.append(dich)
         return out
 
-    def get_mask(self, stance: Stance, depth: int, lv: int) -> Mask:
+    def get_mask(self, stance: Stance, depth: int) -> Mask:
         """Returns the mask with the key defined by the stance."""
-        dichs = self._find_dichs(stance.pos[:-1], depth, lv)
+        dichs = self._find_dichs(stance.pos[:-1], depth)
         out = dichs[0].masks[stance.pos[-1]]
 
         if out:
@@ -371,12 +393,12 @@ class Masker:
             raise Exception(f"Could not find dichotomy by stance {stance}")
 
     def get_dichs(
-        self, stance: Stance, depth: int, lv: int, downstream: bool = False
+        self, stance: Stance, depth: int, downstream: bool = False
     ) -> Dichotomy | List[Dichotomy]:
         """Returns the dichotomy with the key defined by the stance.
         If downstream is True, also returns every dichotomy downstream of it.
         """
-        dichs = self._find_dichs(stance.pos, depth, lv)
+        dichs = self._find_dichs(stance.pos, depth)
         out = dichs if downstream else dichs[0]
 
         if out:
@@ -384,9 +406,7 @@ class Masker:
         else:
             raise Exception(f"Could not find dichotomy by stance {stance}")
 
-    def set_dichotomy(
-        self, dich: Dichotomy, comp: Tuple[int, int], depth: int, lv: int
-    ) -> None:
+    def set_dichotomy(self, dich: Dichotomy, comp: Tuple[int, int], depth: int) -> None:
         """Records the given tuple of pos and rep to the pointed mask.
         If non-terminal, resets dichotomies downstream of the other mask.
         If rep is increased, also resets those downstream the pointed mask.
@@ -394,16 +414,15 @@ class Masker:
         target_mask = dich.masks[dich.pointer]
         other_mask = dich.masks[1 - dich.pointer]
         if not dich.terminal:
-            self.reset_dichotomies(depth, lv, other_mask.num_key)
+            self.reset_dichotomies(depth, other_mask.num_key)
             if target_mask.rep < comp[1]:
-                self.reset_dichotomies(depth, lv, target_mask.num_key)
+                self.reset_dichotomies(depth, target_mask.num_key)
         target_mask.pos, target_mask.rep = comp
         return
 
     def reset_dichotomies(
         self,
         depth: int,
-        lv: int,
         num_key: Optional[List[int]] = None,
         total: bool = False,
     ) -> None:
@@ -411,7 +430,7 @@ class Masker:
         to None. Used to reset the masks of one branch when the pointer is set
         to the other, as well as to prepare for parsing the next element.
         """
-        dichs = self.get_dichs(Stance(pos=num_key or []), depth, lv, downstream=True)
+        dichs = self.get_dichs(Stance(pos=num_key or []), depth, downstream=True)
         for dich in dichs:
             dich.pointer = None
             for mask in dich.masks:
@@ -482,8 +501,8 @@ class Mapper:
             # Dealing with complex embedding
             elif g.is_popper(self.parser.cur_lvl) and self.mapping.cur_depth > 0:
                 if self._close_clause():
-                    depth, level = self.mapping.cur_depth, self.parser.cur_lvl
-                    self.parser.masker.reset_dichotomies(depth, level, total=True)
+                    depth = self.mapping.cur_depth
+                    self.parser.masker.reset_dichotomies(depth, total=True)
                     self.mapping.breaks[self.mapping.cur_depth] = 0
                     self.mapping.pop()
                     e = self.mapping.stack[-1]
@@ -492,12 +511,12 @@ class Mapper:
                     return False
             elif g.is_pusher(self.parser.cur_lvl):
                 self.mapping.push()
-                depth, level = self.mapping.cur_depth, self.parser.cur_lvl
+                depth = self.mapping.cur_depth
                 # Create the mask level if it doesn't exist, reset if it does
                 if len(self.parser.masker.masks) - 1 < self.mapping.cur_depth:
-                    self.parser.masker._construct(depth, level)
+                    self.parser.masker._construct(depth)
                 else:
-                    self.parser.masker.reset_dichotomies(depth, level, total=True)
+                    self.parser.masker.reset_dichotomies(depth, total=True)
                 logger.debug(f"=> Depth increased to {self.mapping.cur_depth}")
                 continue
             else:
@@ -550,7 +569,6 @@ class Mapper:
         mask_from, mask_to = dich.masks if not invert else dich.masks[::-1]
         elems = self.mapping.stack
         depth = self.mapping.cur_depth
-        lv = self.parser.cur_lvl
         matches = self.mapping.enumerate_elems(mask_from.num_key, dich.d)
 
         # Skip the shift to a non-empty mask unless forced
@@ -573,7 +591,7 @@ class Mapper:
                     new_stance = elems[i].stance.copy()
                     new_stance.pos[dich.d] = mask_to.num_key[-1]
                     new_stance.rep[dich.d] = mask_to.rep + n
-                    fit = self._fit_element(elems[i], new_stance, dich.d, lv)
+                    fit = self._fit_element(elems[i], new_stance, dich.d)
                     if fit:
                         logger.debug(
                             f"-> Shifted {elems[i]} from {old_stance} to {new_stance}"
@@ -594,7 +612,7 @@ class Mapper:
 
         # Reset the dichotomies downstream of the mask &
         # subtract the shifted elements from the mask
-        self.parser.masker.reset_dichotomies(depth, lv, mask_from.num_key)
+        self.parser.masker.reset_dichotomies(depth, mask_from.num_key)
         mask_from.subtract(elems_shifted, slots_shifted)
 
         return True
@@ -608,7 +626,6 @@ class Mapper:
 
         elems = self.mapping.stack
         depth = self.mapping.cur_depth
-        lv = self.parser.cur_lvl
         left_nk, right_nk = dich.masks[0].num_key, dich.masks[1].num_key
         left_matches = self.mapping.enumerate_elems(left_nk, dich.d)
         right_matches = self.mapping.enumerate_elems(right_nk, dich.d)
@@ -631,7 +648,7 @@ class Mapper:
             op_stance.pos[-1] = 1 - op_stance.pos[-1]
             g = self.parser.alphabet.get_grapheme(neut_mask.tneuts[depth])
             neut = Element(g, op_stance, self.parser.cur_lvl)
-            fit = self._fit_element(neut, op_stance, None, lv, term_only=True)
+            fit = self._fit_element(neut, op_stance, term_only=True)
             if not fit:
                 logger.warning(
                     f"-> Could not fit neutral element {neut} with stance {op_stance}"
@@ -661,12 +678,11 @@ class Mapper:
 
         cnt = 0
         addr = None
-        lv = self.parser.cur_lvl
         for i, e in enumerate(elems):
             cnt = cnt + 1 if e.stance.pos + e.stance.rep[:-1] == addr else 0
             addr = e.stance.pos + e.stance.rep[:-1]
 
-            rev = bool(self.parser.grules.revs[lv][0][e.num])
+            rev = bool(self.parser.grules.revs[self.parser.cur_lvl][0][e.num])
             addrs = [e for e in elems if e.stance.pos + e.stance.rep[:-1] == addr]
 
             perms = self.parser.srules.tperms[e.num]
@@ -690,7 +706,7 @@ class Mapper:
         e.stance = Stance(depth=depth)
         ds = self.parser.masker.masks[self.parser.cur_lvl][depth]
         for d, _ in enumerate(ds):
-            dich = self.parser.masker.get_dichs(e.stance, depth, self.parser.cur_lvl)
+            dich = self.parser.masker.get_dichs(e.stance, depth)
             decision = self._decide_dichotomy(e, dich)
             if isinstance(decision, bool):
                 return decision
@@ -755,7 +771,7 @@ class Mapper:
 
         # Attempt closure if the obtained fit flips the pointer to 1
         if not dich.terminal and (dich.pointer or 0) != fit:
-            closure = self._close_dichotomies(dich, self.parser.cur_lvl)
+            closure = self._close_dichotomies(dich)
             if not closure:
                 return False
 
@@ -763,7 +779,7 @@ class Mapper:
         old_mask = f"{dich.masks[fit]}"
 
         # Prepare the decision to output
-        self.parser.masker.set_dichotomy(dich, comps[fit], depth, self.parser.cur_lvl)
+        self.parser.masker.set_dichotomy(dich, comps[fit], depth)
         pos = fit if not dich.rev else 1 - fit
         rev = dich.masks[fit].rep
 
@@ -784,7 +800,7 @@ class Mapper:
         depth = self.mapping.cur_depth
         dich = self.parser.masker.masks[self.parser.cur_lvl][depth][0][0]
 
-        if not self._close_dichotomies(dich, self.parser.cur_lvl):
+        if not self._close_dichotomies(dich):
             logger.error("Failed to close the dichotomies")
             return False
 
@@ -794,7 +810,7 @@ class Mapper:
 
         return True
 
-    def _close_dichotomies(self, dich: Dichotomy, lv: int) -> bool:
+    def _close_dichotomies(self, dich: Dichotomy) -> bool:
         """For dichotomies downstream of the given dichotomy, performs
         the finalizing operations: shift the mappings for the non-binary ones,
         add neutral elements as needed for the terminal ones.
@@ -802,7 +818,7 @@ class Mapper:
         res = True
         stance = Stance(pos=dich.masks[dich.pointer or 0].num_key)
         depth = self.mapping.cur_depth
-        dichs = self.parser.masker.get_dichs(stance, depth, lv, downstream=True)
+        dichs = self.parser.masker.get_dichs(stance, depth, downstream=True)
         invert = bool(dich.pointer or 0)
         for dich in dichs:
             if dich.nb:
@@ -816,7 +832,6 @@ class Mapper:
         e: Element,
         stance: Optional[Stance] = None,
         d: Optional[int] = None,
-        lv: Optional[int] = None,
         term_only: bool = False,
         force_mov: bool = False,
     ) -> bool:
@@ -824,20 +839,18 @@ class Mapper:
         depth = self.mapping.cur_depth
         if stance is None:
             stance = e.stance
-        if lv is None:
-            lv = self.parser.cur_lvl
         for p, pos in enumerate(stance.pos):
             if (term_only and p != len(stance.pos) - 1) or (d is not None and p < d):
                 continue
             part_stance = stance.copy(p)
-            dich = self.parser.masker.get_dichs(part_stance, depth, lv)
+            dich = self.parser.masker.get_dichs(part_stance, depth)
             cur_mask = pos if not dich.rev else 1 - pos
 
             comp = dich.masks[cur_mask].compare(e, dich.split, force_mov)
             if comp:
                 e.stance = stance
                 dich.pointer = cur_mask
-                self.parser.masker.set_dichotomy(dich, comp, depth, lv)
+                self.parser.masker.set_dichotomy(dich, comp, depth)
             else:
                 return False
         return True

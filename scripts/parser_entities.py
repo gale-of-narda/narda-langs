@@ -21,17 +21,31 @@ class Mapping:
         self.holder = None
         return
 
+    def __repr__(self) -> str:
+        return "".join(repr(e) for e in self.elems)
+    
+    def determine_head(self, e: Element) -> None:
+        """Tries to set different head positions as determined in the general rules."""
+        # Set as head the first element that fits
+        for num in self.heads:
+            if e.set_head(num):
+                return
+        # If no match is found, choose the first element
+        e.set_head(int(e.stance.key or "0", 2))
+        return
+
     def record_element(self, e: Element) -> None:
         """Adds an element to the current iterator."""
         self.stack.append(e)
+        if isinstance(e.content, List):
+            self.determine_head(e)
         return
 
     def push(self) -> None:
         """Increases depth by one, adds a list and sets it to stack."""
         self.cur_depth += 1
-        self.stack.append([])
         self.holder = self.stack
-        self.stack = self.stack[-1]
+        self.stack = []
         if len(self.breaks) < self.cur_depth + 1:
             self.breaks.append(0)
         return
@@ -39,18 +53,12 @@ class Mapping:
     def pop(self) -> None:
         """Decreases depth by one and collapses the current list into an element."""
         if self.cur_depth == 0:
-            raise ValueError("Tried to set a negative depth")
+            return
         self.cur_depth -= 1
+        e = Element(self.stack, Stance(), self.level)
+        e.stance.depth = self.cur_depth
         self.stack = self.holder
-        self.stack[-1] = Element(self.stack[-1], Stance(), self.level)
-        self.stack[-1].stance.depth = self.cur_depth
-        # Try different head positions as determined in the general rules
-        # Set as head the first element that fits
-        for num in self.heads:
-            if self.stack[-1].set_head(num):
-                return
-        # If no match is found, choose the first element
-        self.stack[-1].set_head(int(self.stack[-1].stance.key or "0", 2))
+        self.record_element(e)
         return
 
     def enumerate_elems(

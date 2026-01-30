@@ -13,13 +13,13 @@ def _():
 
 @app.cell
 def _(Parser):
-    parser = Parser(start_level=0, end_level=0)
+    parser = Parser(start_level=0)
     return (parser,)
 
 
 @app.cell
 def _(parser):
-    input_string = ["páurus", "hólo"]
+    input_string = ["dóro", "hréagus"]
     parser.process(input_string)
     #for rank in parser.masker.masks[1][0]:
     #    for dich in rank:
