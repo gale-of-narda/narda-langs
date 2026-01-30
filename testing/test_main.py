@@ -19,14 +19,14 @@ good_words = [tuple([pair[0], pair[1]]) for pair in tests["Words"]["good"]]
 @pytest.mark.parametrize("good_string, mapping", good_sentences)
 def test_good_sentences(good_string, mapping):
     parser_sentences.process(good_string)
-    stances = [repr(e.stance) for e in parser_sentences.mapping.elems]
+    stances = [repr(e.stance) for e in parser_sentences.mappings[0].elems]
     assert stances == mapping
 
 
 @pytest.mark.parametrize("good_string, mapping", good_words)
 def test_good_words(good_string, mapping):
     parser_words.process(good_string)
-    stances = [repr(e.stance) for e in parser_words.mapping.elems]
+    stances = [repr(e.stance) for e in parser_words.mappings[0].elems]
     assert stances == mapping
 
 

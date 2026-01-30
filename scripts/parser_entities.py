@@ -8,7 +8,7 @@ from scripts.parser_dataclasses import Stance, Grapheme, Feature
 class Mapping:
     """A temporary structure holding elements as they are recorded.
     When a list of elements of depth > 0 is fully recorded, it is
-    replaced by an element of a higher level.
+    replaced by an element of a higher depth.
     """
 
     def __init__(self, level: int) -> None:
@@ -663,7 +663,7 @@ class Element:
         """The order of the element is that of its head's content grapheme."""
         return self.head.content.order
 
-    def set_head(self, num: int) -> bool:
+    def set_head(self, num: int) -> None:
         """Finds the content element with the given binary number
         and sets it as the head.
         """

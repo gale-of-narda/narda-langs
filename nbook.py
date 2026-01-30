@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.19.6"
+__generated_with = "0.19.7"
 app = marimo.App()
 
 
@@ -19,7 +19,7 @@ def _(Parser):
 
 @app.cell
 def _(parser):
-    input_string = "laté#us"
+    input_string = ["ránu<sán"]
     parser.process(input_string)
     #for rank in parser.masker.masks[0]:
     #    for dich in rank:
@@ -31,14 +31,19 @@ def _(parser):
 
 @app.cell
 def _(parser):
-    print([e.stance for e in parser.mapping.elems])
-    parser.draw_tree(all_nodes=True, features=True)
+    print([e.stance for e in parser.mappings[0].elems])
+    parser.draw_tree(parser.trees[-1], all_nodes=True, features=True)
     return
 
 
 @app.cell
 def _(parser):
-    parser.interpreter.describe()
+    parser.interpreter.describe(parser.trees[-1])
+    return
+
+
+@app.cell
+def _():
     return
 
 

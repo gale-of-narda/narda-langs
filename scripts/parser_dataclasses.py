@@ -14,7 +14,7 @@ class Alphabet:
     modifiers: Dict[str, Dict[str, List[str]]]
     substitutions: Dict[str, str]
 
-    def _build_dicts(self, level: int) -> None:
+    def _build_dicts(self) -> None:
         """Adds to the alphabet various dictionaries of characters
         useful on different stages of string parsing.
         """
@@ -25,34 +25,29 @@ class Alphabet:
             for cat in d:
                 for subcat in d[cat]:
                     for aclass in d[cat][subcat]:
-                        values = d[cat][subcat][aclass]
-                        if isinstance(values, List):
-                            for q, vals in enumerate(values):
-                                for i, val in enumerate(vals):
+                        for level, values in enumerate(d[cat][subcat][aclass]):
+                            if isinstance(values, List):
+                                for q, vals in enumerate(values):
+                                    for i, val in enumerate(vals):
+                                        items[val] = {
+                                            "Category": cat,
+                                            "Subcategory": subcat,
+                                            "Class": aclass,
+                                            "Level": level,
+                                            "Quality": None if val in items else q,
+                                            "Index": i,
+                                        }
+                            else:
+                                for i, val in enumerate(values):
                                     items[val] = {
                                         "Category": cat,
                                         "Subcategory": subcat,
                                         "Class": aclass,
-                                        "Quality": q,
+                                        "Level": level,
+                                        "Quality": 0,
                                         "Index": i,
                                     }
-                        else:
-                            for i, val in enumerate(values):
-                                items[val] = {
-                                    "Category": cat,
-                                    "Subcategory": subcat,
-                                    "Class": aclass,
-                                    "Quality": 0,
-                                    "Index": i,
-                                }
             return items
-
-        # Removing characters not on the given level
-        for cat in self.bases["Guiding"]:
-            self.bases["Guiding"][cat] = self.bases["Guiding"][cat][level]
-        for cat in self.modifiers:
-            for subcat in self.modifiers[cat]:
-                self.modifiers[cat][subcat] = self.modifiers[cat][subcat][level]
 
         self.content = self.bases["Content"]
         self.wildcards = self.bases["Guiding"]["Wildcard"]
@@ -97,34 +92,20 @@ class Alphabet:
         for s in symbols:
             if s.acat == "Base":
                 g = Grapheme(base=s)
-                if s.aclass == "Embedder":
-                    if s.content == self.embedders[0]:
-                        g.is_pusher = True
-                    if s.content == self.embedders[1]:
-                        g.is_popper = True
                 graphemes.append(g)
             elif s.acat == "Modifier" and s.aclass == graphemes[-1].aclass:
                 graphemes[-1].modifiers.append(s)
         return graphemes
 
-    def get_grapheme(self, st: str) -> Optional[str]:
+    def get_grapheme(self, st: str) -> Grapheme:
         """Creates a grapheme based on the given base character."""
-
         if st in [
             k for k in self.lookup.keys() if self.lookup[k]["Category"] == "Base"
         ]:
             s = Symbol(st, *self.lookup[st].values())
             g = Grapheme(base=s)
-            if s.aclass == "Embedder":
-                if s.content == self.embedders[0]:
-                    g.is_pusher = True
-                if s.content == self.embedders[1]:
-                    g.is_popper = True
             return g
-        else:
-            raise ValueError(
-                f"Tried to create a grapheme with an illegal character {st}"
-            )
+        raise ValueError(f"Tried to get a grapheme with the illegal character {st}")
 
 
 @dataclass
@@ -149,28 +130,29 @@ class GeneralRules:
         return
 
     def _unravel_term_params(self) -> None:
-        """Transforms perms, revs, dembs for each mask based on the general rules
-        where they are defined in a more compact form.
+        """Transforms perms, revs, dembs, and wilds for each mask
+        based on the general rules where they are defined in a more compact form.
         """
-        self.perms = [self.perms]
-        self.revs = [self.revs]
-        self.dembs = [self.dembs]
-        self.wilds = [self.wilds]
-        for r in range(int(log(len(self.perms[0]), 2))):
-            split_perms, split_revs, split_dembs, split_wilds = [], [], [], []
-            for i in range(0, len(self.perms[-1]), 2):
-                rev = min(self.revs[-1][i : i + 2]) if r == 0 else 0
-                demb = max(self.dembs[-1][i : i + 2])
-                wilds = max(self.wilds[-1][i : i + 2])
-                perm = self.perms[-1][i : i + 2]
-                split_perms.append("".join(perm[::-1] if rev else perm))
-                split_revs.append(rev)
-                split_dembs.append(demb)
-                split_wilds.append(wilds)
-            self.perms.append(split_perms)
-            self.revs.append(split_revs)
-            self.dembs.append(split_dembs)
-            self.wilds.append(split_wilds)
+        for lv, s in enumerate(self.struct):
+            self.perms[lv] = [self.perms[lv]]
+            self.revs[lv] = [self.revs[lv]]
+            self.dembs[lv] = [self.dembs[lv]]
+            self.wilds[lv] = [self.wilds[lv]]
+            for r in range(int(log(len(self.perms[lv][0]), 2))):
+                split_perms, split_revs, split_dembs, split_wilds = [], [], [], []
+                for i in range(0, len(self.perms[lv][-1]), 2):
+                    rev = min(self.revs[lv][-1][i : i + 2]) if r == 0 else 0
+                    demb = max(self.dembs[lv][-1][i : i + 2])
+                    wilds = max(self.wilds[lv][-1][i : i + 2])
+                    perm = self.perms[lv][-1][i : i + 2]
+                    split_perms.append("".join(perm[::-1] if rev else perm))
+                    split_revs.append(rev)
+                    split_dembs.append(demb)
+                    split_wilds.append(wilds)
+                self.perms[lv].append(split_perms)
+                self.revs[lv].append(split_revs)
+                self.dembs[lv].append(split_dembs)
+                self.wilds[lv].append(split_wilds)
         return
 
 
@@ -291,14 +273,26 @@ class Grapheme:
 
     base: Symbol
     modifiers: List[Symbol] = field(default_factory=lambda: [])
-    is_pusher: bool = False
-    is_popper: bool = False
 
     def __repr__(self) -> str:
         return self.content or "Empty symbol"
 
     def __str__(self) -> str:
         return repr(self)
+
+    def is_pusher(self, lv: int) -> bool:
+        """Checks if the grapheme acts as a pusher at the given level."""
+        base = self.base.aclass == "Embedder"
+        level = self.base.level == lv
+        quality = self.base.quality in (None, 0)
+        return min(base, level, quality)
+
+    def is_popper(self, lv: int) -> bool:
+        """Checks if the grapheme acts as a popper at the given level."""
+        base = self.base.aclass == "Embedder"
+        level = self.base.level == lv
+        quality = self.base.quality in (None, 1)
+        return min(base, level, quality)
 
     @property
     def content(self) -> str:
@@ -331,6 +325,7 @@ class Symbol:
     acat: str = str()
     asubcat: str = str()
     aclass: str = str()
+    level: int = 0
     quality: int = 0
     index: int = 0
     order: int = 0
