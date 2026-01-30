@@ -22,12 +22,21 @@ logging.basicConfig(
 class Parser:
     """The main class that orchestrates all language operations."""
 
-    def __init__(self, level: int, path: str = "") -> None:
-        self.level = level
-        self.path = path
+    def __init__(
+        self,
+        start_level: int = 0,
+        end_level: Optional[int] = None,
+        path: str = "",
+    ) -> None:
+        self.slv: int = start_level
+        self.elv: Optional[int] = end_level
+        self.path: str = path
         self._load_params(path)
         self.mappings: List[Mapping] = []
         self.trees: List[Tree] = []
+        self.cur_lvl = self.slv
+        if self.elv is None:
+            self.elv = len(self.grules.struct) - 1
         return
 
     def _load_params(self, path: str = str()) -> None:
@@ -43,34 +52,54 @@ class Parser:
         self.interpreter = Interpreter(self)
         return
 
+    def _itemize(self, st: str) -> List[Grapheme] | bool:
+        """Transforms the given string into a list of graphemes."""
+        if not st:
+            st = self.input_string
+
+        prep = self.alphabet.prepare(st)
+        symb = self.alphabet.symbolize(prep, self.slv)
+        graph = self.alphabet.graphemize(symb)
+
+        if not graph:
+            logger.error(f"Could not graphemize '{st}'")
+            return False
+
+        return graph
+
     def process(self, items: str | List[str]) -> None:
         """Performs the parsing procedure for the input string, commits the mapping
-        to the dichotomic tree and provides the dialectic interpretation.
+        to the dichotomic tree and provides the interpretation.
         """
         self.mappings: List[Mapping] = []
         self.trees: List[Tree] = []
 
-        if not isinstance(items, List):
+        if not items:
+            logger.error("Empty input")
+        elif not isinstance(items, List):
             items = [items]
 
-        for input_string in items:
-            # Produce the mapping
-            self.masker = Masker(self)
-            mapping = self.mapper.parse(input_string)
-            # Commit the mapping to the tree and interpret it
-            if mapping:
-                logger.info(f"Successfully parsed {input_string}")
-                self.mappings.append(mapping)
-                tree = Tree(self.grules.struct[self.level])
-                self.interpreter._apply(mapping.stack, tree)
-                self.interpreter._determine_ctype(tree)
-                self.interpreter._interpret(tree)
-                self.trees.append(tree)
-            # Reload everything if parsing fails
-            else:
-                self._load_params(self.path)
-                logger.info(f"Failed to parse {input_string}")
-                return
+        for lvl in range(self.slv, self.elv + 1):
+            self.cur_lvl = lvl
+            for item in items:
+                # Produce the mapping
+                self.masker = Masker(self)
+                graphemes = self._itemize(item)
+                mapping = self.mapper.parse(graphemes)
+                # Commit the mapping to the tree and interpret it
+                if mapping:
+                    logger.info(f"Successfully parsed {item}")
+                    self.mappings.append(mapping)
+                    tree = Tree(self.grules.struct[self.cur_lvl])
+                    self.interpreter._apply(mapping.stack, tree)
+                    self.interpreter._determine_ctype(tree)
+                    self.interpreter._interpret(tree)
+                    self.trees.append(tree)
+                # Reload everything if parsing fails
+                else:
+                    self._load_params(self.path)
+                    logger.info(f"Failed to parse {item}")
+                    return
 
         return
 
@@ -254,7 +283,7 @@ class Masker:
         self.parser: Parser = parser
         # Level > Depth > Rank > Dichotomy
         self.masks: List[List[List[List[Dichotomy]]]] = [[]]
-        self._construct(d=0, lv=parser.level)
+        self._construct(d=0, lv=parser.cur_lvl)
         return
 
     def _construct(self, d: int, lv: int) -> None:
@@ -322,20 +351,18 @@ class Masker:
 
         return
 
-    def _find_dichs(
-        self, num_key: List[int], depth: int, level: int
-    ) -> List[Dichotomy]:
+    def _find_dichs(self, num_key: List[int], depth: int, lv: int) -> List[Dichotomy]:
         """Returns dichotomies whose keys start with the given one."""
-        dichs = [mp for r in self.masks[level][depth] for mp in r]
+        dichs = [mp for r in self.masks[lv][depth] for mp in r]
         out = []
         for dich in dichs:
             if num_key == dich.num_key[: len(num_key)]:
                 out.append(dich)
         return out
 
-    def get_mask(self, stance: Stance, depth: int, level: int) -> Mask:
+    def get_mask(self, stance: Stance, depth: int, lv: int) -> Mask:
         """Returns the mask with the key defined by the stance."""
-        dichs = self._find_dichs(stance.pos[:-1], depth, level)
+        dichs = self._find_dichs(stance.pos[:-1], depth, lv)
         out = dichs[0].masks[stance.pos[-1]]
 
         if out:
@@ -344,12 +371,12 @@ class Masker:
             raise Exception(f"Could not find dichotomy by stance {stance}")
 
     def get_dichs(
-        self, stance: Stance, depth: int, level: int, downstream: bool = False
+        self, stance: Stance, depth: int, lv: int, downstream: bool = False
     ) -> Dichotomy | List[Dichotomy]:
         """Returns the dichotomy with the key defined by the stance.
         If downstream is True, also returns every dichotomy downstream of it.
         """
-        dichs = self._find_dichs(stance.pos, depth, level)
+        dichs = self._find_dichs(stance.pos, depth, lv)
         out = dichs if downstream else dichs[0]
 
         if out:
@@ -358,7 +385,7 @@ class Masker:
             raise Exception(f"Could not find dichotomy by stance {stance}")
 
     def set_dichotomy(
-        self, dich: Dichotomy, comp: Tuple[int, int], depth: int, level: int
+        self, dich: Dichotomy, comp: Tuple[int, int], depth: int, lv: int
     ) -> None:
         """Records the given tuple of pos and rep to the pointed mask.
         If non-terminal, resets dichotomies downstream of the other mask.
@@ -367,16 +394,16 @@ class Masker:
         target_mask = dich.masks[dich.pointer]
         other_mask = dich.masks[1 - dich.pointer]
         if not dich.terminal:
-            self.reset_dichotomies(depth, level, other_mask.num_key)
+            self.reset_dichotomies(depth, lv, other_mask.num_key)
             if target_mask.rep < comp[1]:
-                self.reset_dichotomies(depth, level, target_mask.num_key)
+                self.reset_dichotomies(depth, lv, target_mask.num_key)
         target_mask.pos, target_mask.rep = comp
         return
 
     def reset_dichotomies(
         self,
         depth: int,
-        level: int,
+        lv: int,
         num_key: Optional[List[int]] = None,
         total: bool = False,
     ) -> None:
@@ -384,7 +411,7 @@ class Masker:
         to None. Used to reset the masks of one branch when the pointer is set
         to the other, as well as to prepare for parsing the next element.
         """
-        dichs = self.get_dichs(Stance(pos=num_key or []), depth, level, downstream=True)
+        dichs = self.get_dichs(Stance(pos=num_key or []), depth, lv, downstream=True)
         for dich in dichs:
             dich.pointer = None
             for mask in dich.masks:
@@ -411,28 +438,13 @@ class Mapper:
         """String representation of the grapheme list loaded in the mapper."""
         return "".join([str(g) for g in self.graphemes])
 
-    def _itemize(
-        self, st: Optional[str] = None, inplace: bool = True
-    ) -> None | List[Grapheme]:
-        """Transforms the given string into a list of graphemes."""
-        if not st:
-            st = self.input_string
-        prep = self.parser.alphabet.prepare(st)
-        symb = self.parser.alphabet.symbolize(prep, self.parser.level)
-        graph = self.parser.alphabet.graphemize(symb)
-        if graph:
-            if inplace:
-                self.graphemes = graph
-            else:
-                return graph
-        else:
-            raise ValueError(f"Could not graphemize {st}")
-
     def _produce_mapping(self, graphemes: Optional[List[Grapheme]] = None) -> bool:
         """Creates the mapping of elements to dichotomic masks."""
 
         def record_wildcard(self, g: Grapheme) -> None:
-            masks = self.parser.masker.masks[self.parser.level][self.mapping.cur_depth]
+            masks = self.parser.masker.masks[self.parser.cur_lvl][
+                self.mapping.cur_depth
+            ]
             for dich in masks[-1]:
                 for mask in dich.masks:
                     if mask.wild:
@@ -451,7 +463,7 @@ class Mapper:
                 if (
                     mod.asubcat == "Breaker"
                     and mod.quality == quality
-                    and mod.level == self.parser.level
+                    and mod.level == self.parser.cur_lvl
                 ):
                     self.mapping.breaks[self.mapping.cur_depth] += mod.index + 1
                     logger.debug("-> Breaker accounted")
@@ -468,9 +480,9 @@ class Mapper:
                 record_wildcard(self, g)
                 continue
             # Dealing with complex embedding
-            elif g.is_popper(self.parser.level) and self.mapping.cur_depth > 0:
+            elif g.is_popper(self.parser.cur_lvl) and self.mapping.cur_depth > 0:
                 if self._close_clause():
-                    depth, level = self.mapping.cur_depth, self.parser.level
+                    depth, level = self.mapping.cur_depth, self.parser.cur_lvl
                     self.parser.masker.reset_dichotomies(depth, level, total=True)
                     self.mapping.breaks[self.mapping.cur_depth] = 0
                     self.mapping.pop()
@@ -478,9 +490,9 @@ class Mapper:
                     logger.debug(f"=> Depth decreased to {self.mapping.cur_depth}")
                 else:
                     return False
-            elif g.is_pusher(self.parser.level):
+            elif g.is_pusher(self.parser.cur_lvl):
                 self.mapping.push()
-                depth, level = self.mapping.cur_depth, self.parser.level
+                depth, level = self.mapping.cur_depth, self.parser.cur_lvl
                 # Create the mask level if it doesn't exist, reset if it does
                 if len(self.parser.masker.masks) - 1 < self.mapping.cur_depth:
                     self.parser.masker._construct(depth, level)
@@ -489,7 +501,7 @@ class Mapper:
                 logger.debug(f"=> Depth increased to {self.mapping.cur_depth}")
                 continue
             else:
-                e = Element(g, Stance(), self.parser.level)
+                e = Element(g, Stance(), self.parser.cur_lvl)
 
             # Update the breaker count if an early breaker is encountered
             check_breaker(self, e.head.content, 0)
@@ -506,14 +518,14 @@ class Mapper:
                 return False
             elif e.stance is True:
                 continue
-            elif not g.is_popper(self.parser.level):
+            elif not g.is_popper(self.parser.cur_lvl):
                 self.mapping.record_element(e)
             logger.debug(f"=> Assigned the stance {e.stance}")
 
             # If the end of the string is reached but depth is still positive,
             # add provisional popper until depth zero is reached
             if n == len(graphemes) - 1 and self.mapping.cur_depth > 0:
-                p = self.parser.alphabet.embedders[self.parser.level][1]
+                p = self.parser.alphabet.embedders[self.parser.cur_lvl][1]
                 g = self.parser.alphabet.get_grapheme(p)
                 graphemes.append(g)
 
@@ -538,7 +550,7 @@ class Mapper:
         mask_from, mask_to = dich.masks if not invert else dich.masks[::-1]
         elems = self.mapping.stack
         depth = self.mapping.cur_depth
-        lv = self.parser.level
+        lv = self.parser.cur_lvl
         matches = self.mapping.enumerate_elems(mask_from.num_key, dich.d)
 
         # Skip the shift to a non-empty mask unless forced
@@ -591,12 +603,12 @@ class Mapper:
         """Adds neutral elements to mirror those with no siblings at terminal nodes.
         Only applicable to the zeroth level.
         """
-        if self.parser.level != 0:
+        if self.parser.cur_lvl != 0:
             return True
 
         elems = self.mapping.stack
         depth = self.mapping.cur_depth
-        lv = self.parser.level
+        lv = self.parser.cur_lvl
         left_nk, right_nk = dich.masks[0].num_key, dich.masks[1].num_key
         left_matches = self.mapping.enumerate_elems(left_nk, dich.d)
         right_matches = self.mapping.enumerate_elems(right_nk, dich.d)
@@ -618,7 +630,7 @@ class Mapper:
             op_stance = e.stance.copy()
             op_stance.pos[-1] = 1 - op_stance.pos[-1]
             g = self.parser.alphabet.get_grapheme(neut_mask.tneuts[depth])
-            neut = Element(g, op_stance, self.parser.level)
+            neut = Element(g, op_stance, self.parser.cur_lvl)
             fit = self._fit_element(neut, op_stance, None, lv, term_only=True)
             if not fit:
                 logger.warning(
@@ -642,14 +654,14 @@ class Mapper:
         """Checks that every mapping complies with terminal permissions.
         Only applicable to the zeroth level.
         """
-        if self.parser.level != 0:
+        if self.parser.cur_lvl != 0:
             return True
         if elems is None:
             elems = self.mapping.stack
 
         cnt = 0
         addr = None
-        lv = self.parser.level
+        lv = self.parser.cur_lvl
         for i, e in enumerate(elems):
             cnt = cnt + 1 if e.stance.pos + e.stance.rep[:-1] == addr else 0
             addr = e.stance.pos + e.stance.rep[:-1]
@@ -676,9 +688,9 @@ class Mapper:
         # Cycle through the ranks and determine the positions of the string for each
         depth = self.mapping.cur_depth
         e.stance = Stance(depth=depth)
-        ds = self.parser.masker.masks[self.parser.level][depth]
+        ds = self.parser.masker.masks[self.parser.cur_lvl][depth]
         for d, _ in enumerate(ds):
-            dich = self.parser.masker.get_dichs(e.stance, depth, self.parser.level)
+            dich = self.parser.masker.get_dichs(e.stance, depth, self.parser.cur_lvl)
             decision = self._decide_dichotomy(e, dich)
             if isinstance(decision, bool):
                 return decision
@@ -743,7 +755,7 @@ class Mapper:
 
         # Attempt closure if the obtained fit flips the pointer to 1
         if not dich.terminal and (dich.pointer or 0) != fit:
-            closure = self._close_dichotomies(dich, self.parser.level)
+            closure = self._close_dichotomies(dich, self.parser.cur_lvl)
             if not closure:
                 return False
 
@@ -751,7 +763,7 @@ class Mapper:
         old_mask = f"{dich.masks[fit]}"
 
         # Prepare the decision to output
-        self.parser.masker.set_dichotomy(dich, comps[fit], depth, self.parser.level)
+        self.parser.masker.set_dichotomy(dich, comps[fit], depth, self.parser.cur_lvl)
         pos = fit if not dich.rev else 1 - fit
         rev = dich.masks[fit].rep
 
@@ -770,9 +782,9 @@ class Mapper:
         and applies special rules to validate the final mapping.
         """
         depth = self.mapping.cur_depth
-        dich = self.parser.masker.masks[self.parser.level][depth][0][0]
+        dich = self.parser.masker.masks[self.parser.cur_lvl][depth][0][0]
 
-        if not self._close_dichotomies(dich, self.parser.level):
+        if not self._close_dichotomies(dich, self.parser.cur_lvl):
             logger.error("Failed to close the dichotomies")
             return False
 
@@ -813,7 +825,7 @@ class Mapper:
         if stance is None:
             stance = e.stance
         if lv is None:
-            lv = self.parser.level
+            lv = self.parser.cur_lvl
         for p, pos in enumerate(stance.pos):
             if (term_only and p != len(stance.pos) - 1) or (d is not None and p < d):
                 continue
@@ -830,17 +842,13 @@ class Mapper:
                 return False
         return True
 
-    def parse(self, input_string: str) -> Mapping | bool:
+    def parse(self, graphemes: List[Grapheme]) -> Mapping | bool:
         """Parses the input string, producing the mapping of elements to stances
         and applying it to the dichotomic tree.
         """
-        self.mapping = Mapping(self.parser.level)
-        self.mapping.heads = self.parser.grules.heads[self.parser.level]
-        self.input_string = input_string
-
-        # Transform the string into a list of graphemes ready for parsing
-        self._itemize(inplace=True)
-        logger.info(f"Parsing '{self.input_string}' as '{self.working_string}'")
+        self.graphemes = graphemes
+        self.mapping = Mapping(self.parser.cur_lvl)
+        self.mapping.heads = self.parser.grules.heads[self.parser.cur_lvl]
 
         # Apply general rules to produce the mapping
         res = self._produce_mapping()
@@ -869,7 +877,7 @@ class Interpreter:
         """Applies the given elements to the given tree using their stances.
         Embeds complexes and compounds in the tree as needed.
         """
-        st = self.parser.grules.struct[self.parser.level]
+        st = self.parser.grules.struct[self.parser.cur_lvl]
         finals = [r + 1 == s for s in st for r in range(s)]
         # Iterating the elements and setting each
         for i, e in enumerate(elems):
@@ -897,7 +905,7 @@ class Interpreter:
         """Determines the composition type of the element recorded in the tree."""
         # Try different types one by one
         # Types specific for the depth level go first, general types last
-        ctypes = self.parser.dialect.ctypes[self.parser.level]
+        ctypes = self.parser.dialect.ctypes[self.parser.cur_lvl]
         if not ctypes:
             ctypes = []
         elif str(tree.depth) in ctypes:

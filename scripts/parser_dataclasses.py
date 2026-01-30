@@ -306,7 +306,7 @@ class Grapheme:
     @property
     def lit(self) -> str:
         """The string representation of the grapheme's base used for matching."""
-        return str(self.base).upper()
+        return str(self.base).lower()
 
     @property
     def aclass(self) -> str:

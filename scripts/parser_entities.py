@@ -636,7 +636,7 @@ class Element:
     def __init__(
         self, content: Grapheme | List[Grapheme], stance: Stance, level: int
     ) -> None:
-        self.content: Grapheme | List[Grapheme] = content
+        self.content: Grapheme | List[Grapheme] | Element | List[Element] = content
         self.stance: Stance = stance
         self.level: int = level
         self.complex: bool = isinstance(self.content, List)

@@ -5,8 +5,8 @@ from pathlib import Path
 
 from scripts.parser_procedure import Parser
 
-parser_words = Parser(level=0)
-parser_sentences = Parser(level=1)
+parser_words = Parser(start_level=0, end_level=0)
+parser_sentences = Parser(start_level=1, end_level=1)
 
 path = Path("testing/testing.json")
 with path.open("r", encoding="utf-8") as f:
