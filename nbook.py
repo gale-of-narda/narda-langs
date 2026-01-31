@@ -20,7 +20,7 @@ def _(Parser):
 @app.cell
 def _(parser):
     input_string = ["dóro", "hréagus"]
-    parser.process(input_string)
+    parser.process(input_string, verbose=False)
     #for rank in parser.masker.masks[1][0]:
     #    for dich in rank:
     #        print(dich)
@@ -39,6 +39,16 @@ def _(parser):
 @app.cell
 def _(parser):
     parser.interpreter.describe()
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _():
     return
 
 

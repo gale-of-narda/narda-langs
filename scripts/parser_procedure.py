@@ -82,10 +82,12 @@ class Parser:
                     break
         return graphemes
 
-    def process(self, items: str | List[str]) -> None:
+    def process(self, items: str | List[str], verbose: bool = False) -> None:
         """Performs the parsing procedure for the input string, commits the mapping
         to the dichotomic tree and provides the interpretation.
         """
+        logger.setLevel(logging.DEBUG if verbose else logging.INFO)
+
         self.mappings: List[Mapping] = []
         self.trees: List[Tree] = []
 
@@ -96,7 +98,6 @@ class Parser:
 
         for lvl in range(self.slv, self.elv + 1):
             self.cur_lvl = lvl
-            logger.debug(f"Level={self.cur_lvl}, items={items}")
             for item in items:
                 # Produce the mapping
                 self.masker = Masker(self)
@@ -104,7 +105,6 @@ class Parser:
                     graphemes = self._flatten(item)
                 else:
                     graphemes = self._itemize(item)
-                logger.debug(f"Graphemes={graphemes}")
                 mapping = self.mapper.parse(graphemes)
                 # Commit the mapping to the tree and interpret it
                 if mapping:
@@ -132,7 +132,7 @@ class Parser:
     ) -> None:
         """Prints out the given dichotomic tree with mapped elements."""
         if tree is None:
-            tree = self.trees[0]
+            tree = self.trees[-1]
         elif isinstance(tree, int):
             tree = self.trees[tree]
 
@@ -158,7 +158,7 @@ class Parser:
         If to_gloss is a list of nodes, glosses them.
         """
         if tree is None:
-            tree = self.trees[0]
+            tree = self.trees[-1]
         elif isinstance(tree, int):
             tree = self.trees[tree]
 
@@ -193,7 +193,7 @@ class Parser:
 
     def get_stances(self, mapping: Optional[Mapping | int] = None) -> List[Stance]:
         if mapping is None:
-            mapping = self.mappings[0]
+            mapping = self.mappings[-1]
         elif isinstance(mapping, int):
             mapping = self.mappings[mapping]
         return [e.stance for e in mapping.elems]
