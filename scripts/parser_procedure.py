@@ -323,9 +323,12 @@ class Streamer:
                 return True
             lvl = t.base.level
             if t.base.asubcat == "Guiding":
+                # Accounting for wildcards
+                if t.base.aclass == "Wildcard":
+                    self.add(t)
                 # Separating intervals of elements belonging to different elements
                 # of the higher level
-                if t.base.aclass == "Separator":
+                elif t.base.aclass == "Separator":
                     self.separate(lvl)
                 # Decreasing depth of complex embedding
                 elif t.is_popper(lvl) and self.processor.cur_dpt[lvl] > 0:
@@ -944,7 +947,7 @@ class Mapper:
             raise 
             return False
 
-        if not self._validate_mapping(e):
+        if e.level == 0 and not self._validate_mapping(e):
             logger.warning("Failed to validate the mapping")
             return False
 
