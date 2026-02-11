@@ -1,85 +1,8 @@
 from math import log
 
-from typing import Dict, Tuple, List, Optional
+from typing import Tuple, List, Optional
 
-from scripts.parser_dataclasses import Stance, Grapheme, Feature
-
-
-class Mapping:
-    """A temporary structure holding elements as they are recorded.
-    When a list of elements of depth > 0 is fully recorded, it is
-    replaced by an element of a higher depth.
-    """
-
-    def __init__(self, level: int) -> None:
-        self.level = level
-        self.heads: List[int] = []
-        self.elems: List[Element] = []
-        self.cur_depth: int = 0
-        self.breaks: List[int] = [0]
-        self.stack = self.elems
-        self.holder = None
-        return
-
-    def __repr__(self) -> str:
-        return "".join(repr(e) for e in self.elems)
-    
-    def determine_head(self, e: Element) -> None:
-        """Tries to set different head positions as determined in the general rules."""
-        # Set as head the first element that fits
-        for num in self.heads:
-            if e.set_head(num):
-                return
-        # If no match is found, choose the first element
-        e.set_head(int(e.stance.key or "0", 2))
-        return
-
-    def record_element(self, e: Element) -> None:
-        """Adds an element to the current iterator."""
-        self.stack.append(e)
-        if isinstance(e.content, List):
-            self.determine_head(e)
-        return
-
-    def push(self) -> None:
-        """Increases depth by one, adds a list and sets it to stack."""
-        self.cur_depth += 1
-        self.holder = self.stack
-        self.stack = []
-        if len(self.breaks) < self.cur_depth + 1:
-            self.breaks.append(0)
-        return
-
-    def pop(self) -> None:
-        """Decreases depth by one and collapses the current list into an element."""
-        if self.cur_depth == 0:
-            return
-        self.cur_depth -= 1
-        e = Element(self.stack, Stance(), self.level)
-        e.stance.depth = self.cur_depth
-        self.stack = self.holder
-        self.record_element(e)
-        return
-
-    def enumerate_elems(
-        self, num_key: List[int], d: Optional[int] = None
-    ) -> Dict[str, List[int]] | List[int]:
-        """Returns a list of stack indices of elements that conform
-        to the given key. If d is given, arranges them into a dict of lists
-        where the keys are the reps before d.
-        """
-        matches = {} if d else []
-        for i, e in enumerate(self.stack):
-            if e.stance.pos[: len(num_key)] == num_key:
-                if not d:
-                    matches.append(i)
-                else:
-                    slot = "".join(str(r) for r in e.stance.rep[:d])
-                    if slot not in matches:
-                        matches[slot] = [i]
-                    else:
-                        matches[slot].append(i)
-        return matches
+from scripts.parser_dataclasses import Stance, Token, Feature
 
 
 class Dichotomy:
@@ -87,7 +10,8 @@ class Dichotomy:
     and the pointer that records the last choice made.
     """
 
-    def __init__(self, d: int = 0, nb: bool = False) -> None:
+    def __init__(self, level: int = 0, d: int = 0, nb: bool = False) -> None:
+        self.level: int = level
         self.d: int = d
         self.nb: bool = nb
         self.terminal: bool = False
@@ -162,6 +86,11 @@ class Dichotomy:
         """Represents the dichotomy key as a list of integers."""
         num_key = [int(k) for k in self.key]
         return num_key
+
+    @property
+    def depth(self) -> int:
+        """The depth of the dichotomy is the greatest depth of its masks."""
+        return max([m.depth for m in self.masks])
 
     def record(self, pos: int, rep: int) -> None:
         target_mask = self.masks[self.pointer]
@@ -254,14 +183,16 @@ class Mask:
         return literals, optionals
 
     def compare(
-        self, e: Element, split: bool, force_mov: bool = False
+        self,
+        e: Element,
+        split: bool,
+        force_mov: bool = False,
     ) -> Optional[Tuple[int, int]]:
         """Produces the movement for the mask required to fit the element
         with its current stance. If no fit is possible, return None.
         """
-        # Check if the representation of the candidate string fits the given mask
         # First check if a complex element can be fit
-        if e.complex and self.demb is not None and self.demb != -1:
+        if all([not e.molar, self.demb is not None, self.demb != -1]):
             if e.stance.depth > self.demb - 1:
                 return None
 
@@ -289,13 +220,12 @@ class Mask:
                 mov = self.move(incr)
                 # Check that we aren't adding compounds beyond the restriction
                 if mov[1] <= (self.lemb or 0) or self.lemb == -1:
-                    # print(mask, mask.lemb, mask.rep, mov)
                     return mov
             incr += 1
 
         return None
 
-    def move(self, step: int, inplace: bool = False) -> Optional[Tuple[int, int]]:
+    def move(self, step: int) -> Optional[Tuple[int, int]]:
         """Changes the position of the cursor in the mask for the given number
         of steps forward. Loops back and increases the repetition counter
         if the mask is cyclical.
@@ -306,28 +236,24 @@ class Mask:
         new_pos = (pos + step) % ln
         new_rep = self.rep + (pos + step) // ln
 
-        if inplace:
-            self.pos = new_pos
-            self.rep = new_rep
-            return None
         return (new_pos, new_rep)
 
     def match(self, e: Element, pos: int = 0, ignore_pos: bool = False) -> bool:
         """Checks if the given string fits the element at the given position."""
         # If freeze is True, fitting to the mask is forbidden
-        content = e.head.content
+        aclass, lit = e.header.content.base.aclass, e.header.content.lit
         if self.freeze:
             return False
-        if content.aclass == "Wildcard":
+        if aclass == "Wildcard":
             return self.wild
         if ignore_pos:
-            by_class = any(content.aclass in m for lits in self.literals for m in lits)
-            by_val = any(content.lit in m for lits in self.literals for m in lits)
+            by_class = any(aclass in m for lits in self.literals for m in lits)
+            by_val = any(lit in m for lits in self.literals for m in lits)
             return max(by_class, by_val)
         else:
             target_pos = self.move(pos)[0]
-            by_class = any(content.aclass in m for m in self.literals[target_pos])
-            by_val = any(content.lit in m for m in self.literals[target_pos])
+            by_class = any(aclass in m for m in self.literals[target_pos])
+            by_val = any(lit in m for m in self.literals[target_pos])
             return max(by_class, by_val)
 
     def subtract(self, pos_delta: int = 0, rep_delta: int = 0) -> None:
@@ -341,9 +267,10 @@ class Mask:
 class Tree:
     """A dichotomic tree defined by the given structure."""
 
-    def __init__(self, struct: List[int], depth: int = 0) -> None:
-        self._depth: int = depth
+    def __init__(self, struct: List[int], level: int = 0, depth: int = 0) -> None:
         self.struct: List[int] = struct
+        self.level: int = level
+        self._depth: int = depth
         self.root: Node = Node()
         self.nodes: List[Node] = [self.root]
         self.perms = None
@@ -360,12 +287,12 @@ class Tree:
 
     @property
     def working_string(self) -> str:
-        """String representation of the graphemes in elements mapped to the tree."""
-        graphemes = []
+        """String representation of the tokens in elements mapped to the tree."""
+        tokens = []
         comps = [e for c in self.root.compounds for e in c.content]
         for e in self.root.content + comps:
-            graphemes.append(e.head.content)
-        return "".join([str(g) for g in graphemes])
+            tokens.append(e.head.content)
+        return "".join([str(g) for g in tokens])
 
     def _populate(self, node: Node) -> None:
         """Realizes the defined structure by creating the appropriate number of nodes
@@ -543,7 +470,7 @@ class Tree:
             out.append(node)
         return out if upstream else out[-1]
 
-    def set_element(self, e: Element, set_all: bool = True) -> None:
+    def set_element(self, e: Element, sep: str = "", set_all: bool = True) -> None:
         """Maps the element to the node addressed by its stance.
         If set_all is True, also maps it continuously to parent nodes
         all the way up to the root.
@@ -555,6 +482,7 @@ class Tree:
             for s in struct[: len(e.stance.pos) + 1]:
                 node = self.get_nodes(e.stance.copy(cursor + s))
                 node.map_element(e)
+                node.sep = sep
                 cursor += s
         return
 
@@ -582,12 +510,12 @@ class Node:
         self.complexes: List[Tree] = []
         self.content: List[Element] = []
         self.feature: Optional[Feature] = None
+        self.sep: str = str()
         return
 
     def __repr__(self) -> str:
-        num = f"N({self.num}): "
-        content = f"{''.join(str(s) for s in self.content)}" if self.content else ""
-        return num + content
+        content = [str(e.preheader) for e in self.content] if self.content else ""
+        return f"N({self.num}): {self.sep.join(content)}"
 
     def __str__(self) -> str:
         return repr(self)
@@ -642,27 +570,38 @@ class Element:
     """
 
     def __init__(
-        self, content: Grapheme | List[Grapheme], stance: Stance, level: int
+        self,
+        content: Token | List[Token],
+        stance: Optional[Stance] = None,
+        level: int = 0,
     ) -> None:
-        self.content: Grapheme | List[Grapheme] | Element | List[Element] = content
-        self.stance: Stance = stance
+        self.content: Token | List[Token] | Element | List[Element] = content
+        self.stance: Stance | None = stance
         self.level: int = level
-        self.complex: bool = isinstance(self.content, List)
+        self.molar: bool = not isinstance(self.content, List)
         self.head: Element = self
         return
 
     def __repr__(self) -> str:
-        if self.complex:
-            return repr(self.head)
-        else:
-            return repr(self.content)
+        return self._represent()
 
-    def __str__(self) -> str:
-        return repr(self)
+    def _represent(self, top: bool = True) -> str:
+        if self.molar:
+            return str(self.content)
+        else:
+            if top:
+                out = ""
+                for c in self.content:
+                    out += c._represent(top=False)
+                    if c is self.head:
+                        out += "̲"
+                return out
+            else:
+                return self.head._represent(top=False)
 
     @property
     def view(self):
-        """String representation of the graphemes in the element's content."""
+        """String representation of the tokens in the element's content."""
         return "".join([str(g) for g in self.content])
 
     @property
@@ -673,15 +612,41 @@ class Element:
 
     @property
     def order(self) -> int:
-        """The order of the element is that of its head's content grapheme."""
+        """The order of the element is that of its head's content token."""
         return self.head.content.order
 
-    def set_head(self, num: int) -> None:
+    @property
+    def header(self) -> Element:
+        """The lowest head of the element."""
+        source = self
+        while source.head is not source:
+            source = source.head
+        return source
+
+    @property
+    def preheader(self) -> Element:
+        """The lowest head of the element that is still of the same level."""
+        source = self
+        while source.head is not source and source.head.level == source.level:
+            source = source.head
+        return source
+
+    def set_head(self, nums: int | list[int], fallback: bool = False) -> bool:
         """Finds the content element with the given binary number
         and sets it as the head.
         """
-        for e in self.content:
-            if int(e.stance.key, 2) == num:
-                self.head = e
-                return True
-        return False
+        # Simple elements always have themselves as heads
+        if self.molar:
+            return False
+        # Try each permitted stance one by one until the first fitting element
+        for num in nums if isinstance(nums, list) else [nums]:
+            for e in self.content:
+                if int(e.stance.key or "0", 2) == num:
+                    self.head = e
+                    return True
+        # If no elements are found, set the first one
+        if fallback:
+            self.head = self.content[0]
+            return True
+        else:
+            return False

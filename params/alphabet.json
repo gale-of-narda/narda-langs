@@ -6,7 +6,7 @@
         },
         "Guiding": {
             "Wildcard": ["#", "@"],
-            "Separator": ["", " "],
+            "Separator": [" ", "."],
             "Embedder": [["-", "-"], [":", ";"]]
         }
     },

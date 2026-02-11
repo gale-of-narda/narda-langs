@@ -14,40 +14,14 @@ class Alphabet:
     modifiers: Dict[str, Dict[str, List[str]]]
     substitutions: Dict[str, str]
 
+    def __post_init__(self) -> None:
+        self._build_dicts()
+        return
+
     def _build_dicts(self) -> None:
         """Adds to the alphabet various dictionaries of characters
         useful on different stages of string parsing.
         """
-
-        def unpack(d) -> Dict:
-            # Creates a flat dictionary of characters with all parameters encoded
-            items = {}
-            for cat in d:
-                for subcat in d[cat]:
-                    for aclass in d[cat][subcat]:
-                        for level, values in enumerate(d[cat][subcat][aclass]):
-                            if isinstance(values, List):
-                                for q, vals in enumerate(values):
-                                    for i, val in enumerate(vals):
-                                        items[val] = {
-                                            "Category": cat,
-                                            "Subcategory": subcat,
-                                            "Class": aclass,
-                                            "Level": level,
-                                            "Quality": None if val in items else q,
-                                            "Index": i,
-                                        }
-                            else:
-                                for i, val in enumerate(values):
-                                    items[val] = {
-                                        "Category": cat,
-                                        "Subcategory": subcat,
-                                        "Class": aclass,
-                                        "Level": level,
-                                        "Quality": 0,
-                                        "Index": i,
-                                    }
-            return items
 
         self.content = self.bases["Content"]
         self.wildcards = self.bases["Guiding"]["Wildcard"]
@@ -56,58 +30,46 @@ class Alphabet:
         self.breakers = self.modifiers["Breaker"]
 
         d = {"Base": self.bases, "Modifier": self.modifiers}
-        self.lookup = unpack(d)
+
+        # Creating a flat dictionary of characters with all parameters encoded
+        self.lookup = {}
+        for cat in d:
+            for subcat in d[cat]:
+                for aclass in d[cat][subcat]:
+                    for level, values in enumerate(d[cat][subcat][aclass]):
+                        if isinstance(values, List):
+                            for q, vals in enumerate(values):
+                                for i, val in enumerate(vals):
+                                    self.lookup[val] = {
+                                        "Category": cat,
+                                        "Subcategory": subcat,
+                                        "Class": aclass,
+                                        "Level": level,
+                                        "Quality": None if val in self.lookup else q,
+                                        "Index": i,
+                                    }
+                        else:
+                            for i, val in enumerate(values):
+                                self.lookup[val] = {
+                                    "Category": cat,
+                                    "Subcategory": subcat,
+                                    "Class": aclass,
+                                    "Level": level,
+                                    "Quality": 0,
+                                    "Index": i,
+                                }
 
         return
 
-    def prepare(self, st: str) -> str:
-        """Removes non-alphabetic characters and makes the replacements."""
-        lst = st.lower()
-        # Replace the special strings as defined in the alphabet
-        reps = self.substitutions
-        replaced_string = [reps[ch] if ch in reps else ch for ch in lst]
-        replaced_string = "".join(replaced_string)
-
-        # Erase the non-alphabetic strings from the string
-        masked = [ch for ch in replaced_string if ch in self.lookup.keys()]
-
-        prepared_string = "".join(masked)
-
-        return prepared_string
-
-    def symbolize(self, prepared_string: str, lv: int) -> List[Symbol]:
-        """Tranforms the input string into a list of symbols matched
-        with the character parameters in the alphabet.
-        """
-        symbols = []
-        sep = self.separators[lv]
-        split_string = prepared_string.split() if sep else prepared_string
-        for i, ch in enumerate(split_string):
-            if ch in self.lookup:
-                d = self.lookup[ch]
-                symbol = Symbol(ch, *d.values(), i)
-                symbols.append(symbol)
-        return symbols
-
-    def graphemize(self, symbols: List[Symbol]) -> List[Grapheme]:
-        graphemes = []
-        for s in symbols:
-            if s.acat == "Base":
-                g = Grapheme(base=s)
-                graphemes.append(g)
-            elif s.acat == "Modifier" and s.aclass == graphemes[-1].aclass:
-                graphemes[-1].modifiers.append(s)
-        return graphemes
-
-    def get_grapheme(self, st: str) -> Grapheme:
-        """Creates a grapheme based on the given base character."""
+    def get_token(self, st: str) -> Token:
+        """Creates a token based on the given base character."""
         if st in [
             k for k in self.lookup.keys() if self.lookup[k]["Category"] == "Base"
         ]:
             s = Symbol(st, *self.lookup[st].values())
-            g = Grapheme(base=s)
+            g = Token(base=s)
             return g
-        raise ValueError(f"Tried to get a grapheme with the illegal character {st}")
+        raise ValueError(f"Tried to get a token with the illegal character {st}")
 
 
 @dataclass
@@ -270,7 +232,7 @@ class Stance:
 
 
 @dataclass
-class Grapheme:
+class Token:
     """A holder for elementary emic units of the language."""
 
     base: Symbol
@@ -279,48 +241,38 @@ class Grapheme:
     def __repr__(self) -> str:
         return self.content or "Empty symbol"
 
-    def __str__(self) -> str:
-        return repr(self)
-
-    def is_pusher(self, lv: int) -> bool:
-        """Checks if the grapheme acts as a pusher at the given level."""
+    def is_pusher(self, lv: int = 0) -> bool:
+        """Checks if the token acts as a pusher at the given level."""
         base = self.base.aclass == "Embedder"
         level = self.base.level == lv
         quality = self.base.quality in (None, 0)
         return min(base, level, quality)
 
-    def is_popper(self, lv: int) -> bool:
-        """Checks if the grapheme acts as a popper at the given level."""
+    def is_popper(self, lv: int = 0) -> bool:
+        """Checks if the token acts as a popper at the given level."""
         base = self.base.aclass == "Embedder"
         level = self.base.level == lv
         quality = self.base.quality in (None, 1)
         return min(base, level, quality)
 
+    def is_wild(self, lv: int = 0) -> bool:
+        return False
+
     @property
     def content(self) -> str:
-        """How the grapheme appears in writing."""
+        """How the token appears in writing."""
         base = str(self.base)
         mods = "".join([m.content for m in self.modifiers])
         return base + mods
-    
+
     @property
     def lit(self) -> str:
-        """The string representation of the grapheme's base used for matching."""
+        """The string representation of the token's base used for matching."""
         return str(self.base).lower()
 
     @property
-    def aclass(self) -> str:
-        """The class of the grapheme is that of its base symbol."""
-        return self.base.aclass
-
-    @property
-    def index(self) -> str:
-        """The index of the grapheme is that of its base symbol."""
-        return self.base.index
-
-    @property
     def order(self) -> int:
-        """The order of the grapheme is the minimum of those of its symbols."""
+        """The order of the token is the minimum of those of its symbols."""
         return min([self.base.order] + [m.order for m in self.modifiers])
 
 
@@ -338,7 +290,4 @@ class Symbol:
     order: int = 0
 
     def __repr__(self) -> str:
-        return self.content
-    
-    def __str__(self) -> str:
         return self.content

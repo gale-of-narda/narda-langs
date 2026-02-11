@@ -3,138 +3,94 @@ import json
 import logging
 import logging.config
 
-from typing import Tuple, List, Optional
+from typing import Dict, Tuple, List, Optional, Generator
 from pathlib import Path
 
-from scripts.parser_entities import Mapping, Dichotomy, Tree, Node, Mask, Element
+from scripts.parser_entities import Dichotomy, Tree, Node, Mask, Element
 from scripts.parser_dataclasses import Alphabet, GeneralRules, SpecialRules
-from scripts.parser_dataclasses import Dialect, Feature, Stance, Grapheme
+from scripts.parser_dataclasses import Dialect, Feature, Stance, Token, Symbol
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
-logging.basicConfig(
-    format="[%(levelname)s] %(message)s",
-    level=logging.DEBUG,
-)
+logging.basicConfig(format="[%(levelname)s] %(message)s", level=logging.DEBUG)
 
 
-class Parser:
-    """The main class that orchestrates all language operations."""
+class Processor:
+    """Orchestrates all language operations."""
 
     def __init__(
         self,
-        start_level: int = 0,
-        end_level: Optional[int] = None,
+        max_level: Optional[int] = None,
         path: str = "",
     ) -> None:
-        self.slv: int = start_level
-        self.elv: Optional[int] = end_level
+        self.max_level: Optional[int] = max_level
         self.path: str = path
-        self.mappings: List[Mapping] = []
-        self.trees: List[Tree] = []
-        self.cur_lvl = self.slv
-        self.cur_dpt = 0
-
-        self._load_params(path)
-        if self.elv is None:
-            self.elv = len(self.grules.struct) - 1
-            
+        self._load_params()
         return
 
-    def _load_params(self, path: str = str()) -> None:
+    def _load_params(self) -> None:
         """Creates the components and loads the alphabet,
         general and special rules from the given path.
         """
-        loader = Loader(path)
+        # Loading parameters
+        loader = Loader(self.path)
         self.alphabet = loader.load_alphabet()
         self.grules = loader.load_grules()
         self.srules = loader.load_srules()
         self.dialect = loader.load_dialect()
+        # Setting levels
+        self.levels = range(len(self.grules.struct))
+        # Creating components
         self.mapper = Mapper(self)
+        self.masker = Masker(self)
         self.interpreter = Interpreter(self)
-        return
+        self.streamer = Streamer(self)
 
-    def _itemize(self, st: str) -> List[Grapheme] | bool:
-        """Transforms the given string into a list of graphemes."""
-        if not st:
-            st = self.input_string
-
-        prep = self.alphabet.prepare(st)
-        symb = self.alphabet.symbolize(prep, self.slv)
-        graph = self.alphabet.graphemize(symb)
-
-        if not graph:
-            logger.error(f"Could not graphemize '{st}'")
+    def process(self, instr: str) -> None:
+        """Parses the input string and applies the parsing to the trees."""
+        logger.info(f"Parsing {instr}")
+        # Emptying the parameters
+        self.cur_breaks = [[0] for lvl in self.levels]
+        self.cur_dpt = [0 for lvl in self.levels]
+        self.cur_bdr = [0 for lvl in self.levels]
+        self.elems = [[] for lvl in self.levels]
+        self.trees = [[] for lvl in self.levels]
+        self.streamer.instr = instr
+        self.masker.construct()
+        # Parsing the string
+        try:
+            self.streamer.feed()
+        except Exception:
+            logger.info(f"Failed to parse {instr}")
             return False
-
-        return graph
-
-    def _flatten(self, mappings: List[Mapping]) -> List[Grapheme]:
-        """Creates an element based on the provided items and sets a head for it."""
-
-        graphemes = []
-        for m in mappings:
-            e = Element(m.elems, Stance(), self.cur_lvl)
-            for num in self.grules.heads[self.cur_lvl - 1]:
-                if e.set_head(num):
-                    graphemes.append(e.head.content)
-                    break
-        return graphemes
-
-    def process(self, items: str | List[str], verbose: bool = False) -> None:
-        """Performs the parsing procedure for the input string, commits the mapping
-        to the dichotomic tree and provides the interpretation.
-        """
-        logger.setLevel(logging.DEBUG if verbose else logging.INFO)
-
-        self.mappings: List[Mapping] = []
-        self.trees: List[Tree] = []
-
-        if not items:
-            logger.error("Empty input")
-        elif not isinstance(items, List):
-            items = [items]
-
-        for lvl in range(self.slv, self.elv + 1):
-            self.cur_lvl = lvl
-            for item in items:
-                # Produce the mapping
-                self.masker = Masker(self)
-                if isinstance(item[0], Mapping):
-                    graphemes = self._flatten(item)
-                else:
-                    graphemes = self._itemize(item)
-                mapping = self.mapper.parse(graphemes)
-                # Commit the mapping to the tree and interpret it
-                if mapping:
-                    logger.info(f"Successfully parsed {item}")
-                    self.mappings.append(mapping)
-                    tree = Tree(self.grules.struct[self.cur_lvl])
-                    self.interpreter._apply(mapping.stack, tree)
-                    self.interpreter._determine_ctype(tree)
-                    self.interpreter._interpret(tree)
-                    self.trees.append(tree)
-                # Reload everything if parsing fails
-                else:
-                    self._load_params(self.path)
-                    logger.info(f"Failed to parse {item}")
-                    return
-            items = [self.mappings]
-
-        return
+        logger.info(f"Successfully parsed {instr} as {self.elems[-1]}")
+        # Applying the obtained parsing to the trees
+        for lvl in self.levels:
+            if lvl < len(self.levels) - 1:
+                elems = [e.preheader.content for e in self.elems[lvl + 1]]
+            else:
+                elems = [self.elems[lvl]]
+            for es in elems:
+                tree = Tree(self.grules.struct[lvl], lvl)
+                self.trees[lvl].append(tree)
+                self.interpreter.apply(es, tree)
+                if lvl <= self.max_level:
+                    self.interpreter.determine_ctype(tree)
+                    self.interpreter.interpret(tree)
+        return True
 
     def draw_tree(
         self,
-        tree: Optional[Tree | int] = None,
+        tree: Tree | int | None = None,
         features: bool = False,
         all_nodes: bool = False,
     ) -> None:
         """Prints out the given dichotomic tree with mapped elements."""
         if tree is None:
-            tree = self.trees[-1]
+            tree = self.trees[0][-1]
         elif isinstance(tree, int):
-            tree = self.trees[tree]
+            tree = self.trees[tree][-1]
 
         st = str(tree)
 
@@ -149,8 +105,8 @@ class Parser:
 
     def gloss(
         self,
-        tree: Optional[Tree | int] = None,
-        to_gloss: Optional[str | List[Node]] = None,
+        tree: Tree | int | None = None,
+        to_gloss: str | list[Node] | None = None,
     ) -> None:
         """Iterates the terminal nodes of the tree and replaces the representations
         of their contents with the gloss strings defined by their features.
@@ -163,7 +119,7 @@ class Parser:
             tree = self.trees[tree]
 
         if to_gloss is None:
-            items = tree.get_interpretable_nodes(complexes=True)
+            items = tree.getinterpretable_nodes(complexes=True)
         elif isinstance(to_gloss, str):
             self.process(to_gloss)
             self.gloss(self.parser.trees[-1])
@@ -191,12 +147,32 @@ class Parser:
 
         return gloss
 
-    def get_stances(self, mapping: Optional[Mapping | int] = None) -> List[Stance]:
-        if mapping is None:
-            mapping = self.mappings[-1]
-        elif isinstance(mapping, int):
-            mapping = self.mappings[mapping]
-        return [e.stance for e in mapping.elems]
+    def get_interval(self, lvl: int) -> list[Element]:
+        """Returns the interval on the given level consisting of elements
+        that are yet to be wrapped into an element of the higher level.
+        """
+        elems = self.elems[lvl][self.cur_bdr[lvl] :]
+        return elems
+
+    def update_interval(self, lvl: int) -> None:
+        """Moves the interval border on the given level to the end of its
+        element list.
+        """
+        self.cur_bdr[lvl] = len(self.elems[lvl])
+        return
+
+    def get_stances(self, lvl: int = -1) -> list[Stance]:
+        """Produces the list of stances of the elements of the given level."""
+        return [e.stance for e in self.elems[lvl]]
+
+    def get_stack(self, lvl: int = -1, interval: bool = False) -> list[Element]:
+        """Returns the list of elements at the given level
+        to which the next element should be appended.
+        """
+        stack = self.get_interval(lvl) if interval else self.elems[lvl]
+        while len(stack) > 0 and isinstance(stack[-1], list):
+            stack = stack[-1]
+        return stack
 
 
 class Loader:
@@ -226,7 +202,6 @@ class Loader:
             modifiers=data["Modifiers"],
             substitutions=data["Substitutions"],
         )
-        alphabet._build_dicts()
         return alphabet
 
     def load_grules(self) -> GeneralRules:
@@ -295,110 +270,285 @@ class Loader:
         return dialect
 
 
+class Streamer:
+    """Takes an input string and creates a stream of tokens wrapped into
+    elements to be parsed, depth and level structure accounted.
+    """
+
+    def __init__(self, processor: Processor) -> None:
+        self.processor = processor
+        return
+
+    def _tokenize(self) -> Generator[Token, None, None]:
+        """Performs the splitting, alphabetic filtering, symbolization,
+        and tokenization of the input string.
+        """
+        t: Token | None = None
+        for i, ch in enumerate(self.instr):
+            # Wrapping the char into a symbol if it is alphabetic
+            if ch in self.processor.alphabet.substitutions:
+                ch = self.processor.alphabet.substitutions[ch]
+            if ch not in self.processor.alphabet.lookup:
+                continue
+            params = self.processor.alphabet.lookup[ch]
+            s = Symbol(ch, *params.values(), i)
+            # Wrapping the base symbol into a token (if base)
+            # or modifying the previous one (if modifier)
+            # The token is yielded as the next base symbol is read
+            # or at the end of the string
+            if isinstance(t, Token):
+                if s.acat == "Base":
+                    yield t
+                elif s.acat == "Modifier" and s.aclass == t.base.aclass:
+                    t.modifiers.append(s)
+            if s.acat == "Base":
+                t = Token(base=s)
+        if isinstance(t, Token) and s.aclass != "Separator":
+            yield t
+
+    def feed(self) -> bool:
+        """Processes the stream of tokens according to their alphabetic parameters.
+        Content tokens are parsed as language elements, others set the parameters
+        of the processor.
+        """
+        stream = self._tokenize()
+        # Exhausting the stream
+        while True:
+            t = next(stream, None)
+            # When the last token is reached, close each level by parsing
+            # a virtual separator
+            if t is None:
+                for lvl in self.processor.levels:
+                    self.separate(lvl)
+                return True
+            lvl = t.base.level
+            if t.base.asubcat == "Guiding":
+                # Separating intervals of elements belonging to different elements
+                # of the higher level
+                if t.base.aclass == "Separator":
+                    self.separate(lvl)
+                # Decreasing depth of complex embedding
+                elif t.is_popper(lvl) and self.processor.cur_dpt[lvl] > 0:
+                    self.pop(lvl)
+                # Increasing depth of complex embedding
+                elif t.is_pusher(lvl):
+                    self.push(lvl)
+            # Parsing content tokens while accounting for early & late breakers
+            elif t.base.asubcat == "Content":
+                self.account_breaker(t, late=False)
+                self.add(t)
+                self.account_breaker(t, late=True)
+
+    def add(self, to_add: Token | Element, lvl: int = 0) -> None:
+        """Adds the given element to the element buffer,, parses and closes it.
+        If a token is given, wraps it into a new element beforehand.
+        """
+        e = to_add if isinstance(to_add, Element) else Element(to_add, level=0)
+        e.stance = Stance(depth=self.processor.cur_dpt[e.level])
+        if not self.processor.mapper.close(e):
+            raise Exception("Parsing failed")
+        self.parse(e)
+        stack = self.processor.get_stack(lvl)
+        stack.append(e)
+        return
+
+    def separate(self, lvl: int) -> None:
+        """Wraps the interval of elements limited by the current border position
+        into an element of the higher level and adds it to that level of the
+        element buffer.
+        """
+        # If the current depth of embedding is above zero on the same level,
+        # pop until it reaches zero
+        self.pop(lvl, full=True)
+        interval = self.processor.get_interval(lvl)
+        if interval and lvl < len(self.processor.levels) - 1:
+            e = Element(interval, level=lvl + 1)
+            self.add(e, lvl + 1)
+            self.processor.masker.construct(lvl)
+            self.processor.update_interval(lvl)
+        return
+
+    def pop(self, lvl: int, full: bool = False) -> None:
+        """Decreases the current depth of complex embedding for the given level,
+        wraps the current sublist of elements into an element of the same level,
+        sets its head and parses it.
+        """
+        while self.processor.cur_dpt[lvl] > 0:
+            # Popping only operates on the latest item in the element buffer,
+            # which must also be a list of elements
+            content = self.processor.elems[lvl][-1]
+            if not isinstance(content, list):
+                return
+            e = Element(content, level=lvl)
+            if not self.processor.mapper.close(e):
+                raise Exception("Parsing failed")
+            self.processor.masker.construct(lvl, self.processor.cur_dpt[lvl])
+            self.processor.cur_breaks[lvl][self.processor.cur_dpt[lvl]] = 0
+            self.processor.elems[lvl][-1] = e
+            self.processor.cur_dpt[lvl] -= 1
+            self.parse(e)
+            logger.debug(
+                f"-> Depth at level {lvl} decreased to {self.processor.cur_dpt[lvl]}"
+            )
+            if not full:
+                break
+        return
+
+    def push(self, lvl: int) -> None:
+        """Decreases the current depth of complex embedding for the given level.
+        Performs separation on the previous level if necessary.
+        """
+        if lvl > 0:
+            self.separate(lvl - 1)
+        self.processor.elems[lvl].append([])
+        self.processor.cur_dpt[lvl] += 1
+        if self.processor.cur_dpt[lvl] >= len(self.processor.cur_breaks[lvl]):
+            self.processor.cur_breaks[lvl].append(0)
+        logger.debug(
+            f"-> Depth at level {lvl} increased to {self.processor.cur_dpt[lvl]}"
+        )
+        return
+
+    def account_breaker(self, t: Token, late: bool) -> None:
+        """Scans the modifiers of the given token for late or early breakers
+        and increases the current breaker values as needed.
+        """
+        for mod in t.modifiers:
+            if mod.asubcat == "Breaker" and mod.quality == int(late):
+                lvl, dpt = t.base.level, self.processor.cur_dpt[t.base.level]
+                self.processor.cur_breaks[lvl][dpt] += mod.index + 1
+                brk = self.processor.cur_breaks[lvl][dpt]
+                logger.debug(
+                    f"-> Breaker count at level {lvl}, depth {dpt} increased to {brk}"
+                )
+        return
+
+    def parse(self, e: Element) -> bool:
+        """Passes the given element to the mapper method that determines
+        its dichotomic stance.
+        """
+        # Skipping levels beyond the set maximum
+        if e.level > self.processor.max_level:
+            return True
+        # Elements with lists of elements as content must have heads
+        if not e.molar:
+            e.set_head(self.processor.grules.heads[e.level - 1], fallback=True)
+        if self.processor.mapper.determine_stance(e):
+            logger.debug(f"=> Assigned the stance {e.stance} to {e}")
+            return True
+        else:
+            raise Exception(f"Failed to parse {e}")
+
+
 class Masker:
     """Creates, holds, and manipulates the dichotomies and masks as needed
     by the parsing procedure.
     """
 
-    def __init__(self, parser: Parser) -> None:
-        self.parser: Parser = parser
+    def __init__(self, processor: Processor) -> None:
+        self.processor: Processor = processor
         # Level > Depth > Rank > Dichotomy
-        self.masks: List[List[List[List[Dichotomy]]]] = [[]]
-        self._construct(d=0)
+        self.masks: List[List[List[List[Dichotomy]]]] = [
+            [] for lvl in range(len(self.processor.grules.struct))
+        ]
+        self.construct()
         return
 
-    def _construct(self, d: int) -> None:
-        """Creates the hierarchy of dichotomies loaded with mask pairs."""
-        lv = self.parser.cur_lvl
-        struct = self.parser.grules.struct
-        perms = self.parser.grules.perms
-        revs = self.parser.grules.revs
-        dembs = self.parser.grules.dembs
-        wilds = self.parser.grules.wilds
-        rets = self.parser.grules.rets
-        skips = self.parser.grules.skips
-        splits = self.parser.grules.splits
-        lembs = self.parser.grules.lembs
-        tneuts = self.parser.srules.tneuts
+    def construct(self, level: int | None = None, depth: int | None = None) -> None:
+        """Creates the hierarchy of dichotomies loaded with mask pairs.
+        If level and depth are given, create or recreate the corresponding
+        particular set of dichotomies.
+        """
+        struct = self.processor.grules.struct
+        perms = self.processor.grules.perms
+        revs = self.processor.grules.revs
+        dembs = self.processor.grules.dembs
+        wilds = self.processor.grules.wilds
+        rets = self.processor.grules.rets
+        skips = self.processor.grules.skips
+        splits = self.processor.grules.splits
+        lembs = self.processor.grules.lembs
+        tneuts = self.processor.srules.tneuts
 
-        if len(self.masks) <= lv:
-            self.masks.append([])
+        for lvl in range(len(struct)):
+            # Skip the irrelevant and reset the masks on relevant levels
+            if level is not None and level != lvl:
+                continue
+            if depth is None:
+                self.masks[lvl] = [[]]
+            else:
+                while len(self.masks[lvl]) < (depth or 0) + 1:
+                    self.masks[lvl].append([])
+                self.masks[lvl][depth or 0] = []
 
-        # Define which dichotomies are last on rank & which are non-binary
-        dich_num = sum(struct[lv])
-        lds = [r == len(range(s)) - 1 for s in struct[lv] for r in range(s)]
-        nbs = [r != 0 for s in struct[lv] for r in range(s)]
+            # Define which dichotomies are last on rank & which are non-binary
+            dich_num = sum(struct[lvl])
+            lds = [r == len(range(s)) - 1 for s in struct[lvl] for r in range(s)]
+            nbs = [r != 0 for s in struct[lvl] for r in range(s)]
 
-        # Create the non-existing depths of masks
-        ranks = []
-        for d in range(dich_num):
-            dichs = []
-            for p in range(0, len(perms[lv][d]), 2):
-                left_perms = perms[lv][d][p : p + 2][0]
-                right_perms = perms[lv][d][p : p + 2][1]
-                left_mask = Mask(left_perms, dich_num - d, p)
-                right_mask = Mask(right_perms, dich_num - d, p + 1)
+            ranks = []
+            for d in range(dich_num):
+                dichs = []
+                for p in range(0, len(perms[lvl][d]), 2):
+                    left_perms = perms[lvl][d][p : p + 2][0]
+                    right_perms = perms[lvl][d][p : p + 2][1]
+                    left_mask = Mask(left_perms, dich_num - d, p)
+                    right_mask = Mask(right_perms, dich_num - d, p + 1)
 
-                left_mask.rev = revs[lv][d][p : p + 2][0]
-                right_mask.rev = revs[lv][d][p : p + 2][1]
-                left_mask.demb = dembs[lv][d][p : p + 2][0]
-                right_mask.demb = dembs[lv][d][p : p + 2][1]
-                left_mask.wild = wilds[lv][d][p : p + 2][0]
-                right_mask.wild = wilds[lv][d][p : p + 2][1]
+                    left_mask.rev = revs[lvl][d][p : p + 2][0]
+                    right_mask.rev = revs[lvl][d][p : p + 2][1]
+                    left_mask.demb = dembs[lvl][d][p : p + 2][0]
+                    right_mask.demb = dembs[lvl][d][p : p + 2][1]
+                    left_mask.wild = wilds[lvl][d][p : p + 2][0]
+                    right_mask.wild = wilds[lvl][d][p : p + 2][1]
 
-                # Compound embedding only for the last dichs on rank
-                rlembs, rlds = lembs[lv][::-1][d], lds[::-1][d]
-                left_mask.lemb = rlembs[p : p + 2][0] if rlds else 0
-                right_mask.lemb = rlembs[p : p + 2][1] if rlds else 0
-                left_mask.depth = d
-                right_mask.depth = d
+                    # Compound embedding only for the last dichs on rank
+                    rlembs, rlds = lembs[lvl][::-1][d], lds[::-1][d]
+                    left_mask.lemb = rlembs[p : p + 2][0] if rlds else 0
+                    right_mask.lemb = rlembs[p : p + 2][1] if rlds else 0
+                    left_mask.depth = depth or 0
+                    right_mask.depth = depth or 0
+                    left_mask.logger = logger
+                    right_mask.logger = logger
 
-                # Neutral elements only for the lowest terminal masks
-                if d == 0 and lv == 0:
-                    left_mask.tneuts = tneuts[p : p + 2][0]
-                    right_mask.tneuts = tneuts[p : p + 2][1]
+                    # Neutral elements only for the lowest terminal masks
+                    if d == 0 and lvl == 0:
+                        left_mask.tneuts = tneuts[p : p + 2][0]
+                        right_mask.tneuts = tneuts[p : p + 2][1]
 
-                dich = Dichotomy(d=dich_num - d - 1, nb=nbs[d])
-                dich.terminal = d == 0
-                dich.left, dich.right = [left_mask, right_mask]
-                dich.rev = min(revs[lv][d][p : p + 2]) if d < 1 else 0
-                dich.ret = rets[lv][d]
-                dich.skip = skips[lv][d]
-                dich.split = splits[lv][d]
-                dichs.append(dich)
+                    dich = Dichotomy(level=lvl, d=dich_num - d - 1, nb=nbs[d])
+                    dich.terminal = d == 0
+                    dich.left, dich.right = [left_mask, right_mask]
+                    dich.rev = min(revs[lvl][d][p : p + 2]) if d < 1 else 0
+                    dich.ret = rets[lvl][d]
+                    dich.skip = skips[lvl][d]
+                    dich.split = splits[lvl][d]
+                    dichs.append(dich)
 
-            ranks.append(dichs)
+                ranks.append(dichs)
 
-        self.masks[lv].append(ranks[::-1])
+            self.masks[lvl][depth or 0] = ranks[::-1]
 
         return
 
-    def _find_dichs(self, num_key: List[int], depth: int) -> List[Dichotomy]:
+    def _find_dichs(self, num_key: List[int], depth: int, lvl: int) -> List[Dichotomy]:
         """Returns dichotomies whose keys start with the given one."""
-        dichs = [mp for r in self.masks[self.parser.cur_lvl][depth] for mp in r]
+        if len(self.masks[lvl]) <= depth:
+            self.construct(lvl, depth)
+        dichs = [mp for r in self.masks[lvl][depth] for mp in r]
         out = []
         for dich in dichs:
             if num_key == dich.num_key[: len(num_key)]:
                 out.append(dich)
         return out
 
-    def get_mask(self, stance: Stance, depth: int) -> Mask:
-        """Returns the mask with the key defined by the stance."""
-        dichs = self._find_dichs(stance.pos[:-1], depth)
-        out = dichs[0].masks[stance.pos[-1]]
-
-        if out:
-            return out
-        else:
-            raise Exception(f"Could not find dichotomy by stance {stance}")
-
     def get_dichs(
-        self, stance: Stance, depth: int, downstream: bool = False
+        self, stance: Stance, lvl: int, downstream: bool = False
     ) -> Dichotomy | List[Dichotomy]:
         """Returns the dichotomy with the key defined by the stance.
         If downstream is True, also returns every dichotomy downstream of it.
         """
-        dichs = self._find_dichs(stance.pos, depth)
+        dichs = self._find_dichs(stance.pos, stance.depth, lvl)
         out = dichs if downstream else dichs[0]
 
         if out:
@@ -406,7 +556,7 @@ class Masker:
         else:
             raise Exception(f"Could not find dichotomy by stance {stance}")
 
-    def set_dichotomy(self, dich: Dichotomy, comp: Tuple[int, int], depth: int) -> None:
+    def set_dichotomy(self, dich: Dichotomy, comp: Tuple[int, int], level: int) -> None:
         """Records the given tuple of pos and rep to the pointed mask.
         If non-terminal, resets dichotomies downstream of the other mask.
         If rep is increased, also resets those downstream the pointed mask.
@@ -414,14 +564,15 @@ class Masker:
         target_mask = dich.masks[dich.pointer]
         other_mask = dich.masks[1 - dich.pointer]
         if not dich.terminal:
-            self.reset_dichotomies(depth, other_mask.num_key)
+            self.reset_dichotomies(level, other_mask.depth, other_mask.num_key)
             if target_mask.rep < comp[1]:
-                self.reset_dichotomies(depth, target_mask.num_key)
+                self.reset_dichotomies(level, target_mask.depth, target_mask.num_key)
         target_mask.pos, target_mask.rep = comp
         return
 
     def reset_dichotomies(
         self,
+        level: int,
         depth: int,
         num_key: Optional[List[int]] = None,
         total: bool = False,
@@ -430,7 +581,8 @@ class Masker:
         to None. Used to reset the masks of one branch when the pointer is set
         to the other, as well as to prepare for parsing the next element.
         """
-        dichs = self.get_dichs(Stance(pos=num_key or []), depth, downstream=True)
+        stance = Stance(pos=num_key or [], rep=[], depth=depth)
+        dichs = self.get_dichs(stance, level, downstream=True)
         for dich in dichs:
             dich.pointer = None
             for mask in dich.masks:
@@ -447,132 +599,56 @@ class Mapper:
     Successful termination of the parsing procedure is the criterion of grammaticality.
     """
 
-    def __init__(self, parser: Parser) -> None:
-        self.parser: Parser = parser
-        self.graphemes: List[Grapheme] = []
+    def __init__(self, processor: Processor) -> None:
+        self.processor: Processor = processor
+        self.e: Element | None = None
         return
 
-    @property
-    def working_string(self) -> str:
-        """String representation of the grapheme list loaded in the mapper."""
-        return "".join([str(g) for g in self.graphemes])
-
-    def _produce_mapping(self, graphemes: Optional[List[Grapheme]] = None) -> bool:
-        """Creates the mapping of elements to dichotomic masks."""
-
-        def record_wildcard(self, g: Grapheme) -> None:
-            masks = self.parser.masker.masks[self.parser.cur_lvl][
-                self.mapping.cur_depth
-            ]
-            for dich in masks[-1]:
-                for mask in dich.masks:
-                    if mask.wild:
-                        stance = Stance(
-                            mask.num_key,
-                            [0] * len(mask.num_key),
-                            self.mapping.cur_depth,
-                        )
-                        e = Element(g, stance, self.mapping.cur_depth)
-                        if self._fit_element(e, force_mov=True):
-                            self.mapping.record_element(e)
-                            logger.debug(f"-> Fit a wildcard to {stance}")
-
-        def check_breaker(self, g: Grapheme, quality: int) -> None:
-            for mod in g.modifiers:
-                if (
-                    mod.asubcat == "Breaker"
-                    and mod.quality == quality
-                    and mod.level == self.parser.cur_lvl
-                ):
-                    self.mapping.breaks[self.mapping.cur_depth] += mod.index + 1
-                    logger.debug("-> Breaker accounted")
-            return
-
-        if graphemes is None:
-            graphemes = self.graphemes
-
-        # Iterating the input string with the separator appropriate for the level
-        for n, g in enumerate(graphemes):
-            logger.debug(f"Working with '{g}'")
-            # Dealing with wildcards
-            if g.aclass == "Wildcard":
-                record_wildcard(self, g)
-                continue
-            # Dealing with complex embedding
-            elif g.is_popper(self.parser.cur_lvl) and self.mapping.cur_depth > 0:
-                if self._close_clause():
-                    depth = self.mapping.cur_depth
-                    self.parser.masker.reset_dichotomies(depth, total=True)
-                    self.mapping.breaks[self.mapping.cur_depth] = 0
-                    self.mapping.pop()
-                    e = self.mapping.stack[-1]
-                    logger.debug(f"=> Depth decreased to {self.mapping.cur_depth}")
+    def _enumerate_elems(
+        self, num_key: List[int], elems: List[Element], d: int
+    ) -> Dict[str, List[int]]:
+        """Returns a list of indices of the given list of elements that conform
+        to the given key, arranging them into a dict of lists where the keys are
+        the reps before d.
+        """
+        matches = {}
+        for i, e in enumerate(elems):
+            if e.stance.pos[: len(num_key)] == num_key:
+                slot = "".join(str(r) for r in e.stance.rep[:d])
+                if slot not in matches:
+                    matches[slot] = [i]
                 else:
-                    return False
-            elif g.is_pusher(self.parser.cur_lvl):
-                self.mapping.push()
-                depth = self.mapping.cur_depth
-                # Create the mask level if it doesn't exist, reset if it does
-                if len(self.parser.masker.masks) - 1 < self.mapping.cur_depth:
-                    self.parser.masker._construct(depth)
-                else:
-                    self.parser.masker.reset_dichotomies(depth, total=True)
-                logger.debug(f"=> Depth increased to {self.mapping.cur_depth}")
-                continue
-            else:
-                e = Element(g, Stance(), self.parser.cur_lvl)
-
-            # Update the breaker count if an early breaker is encountered
-            check_breaker(self, e.head.content, 0)
-
-            # Determine the stance of the element
-            if e.stance == Stance():
-                e.stance = self._determine_stance(e)
-
-            # Update the breaker count if a late breaker is encountered
-            check_breaker(self, e.head.content, 1)
-
-            # Record the result if viable
-            if e.stance is False:
-                return False
-            elif e.stance is True:
-                continue
-            elif not g.is_popper(self.parser.cur_lvl):
-                self.mapping.record_element(e)
-            logger.debug(f"=> Assigned the stance {e.stance}")
-
-            # If the end of the string is reached but depth is still positive,
-            # add provisional popper until depth zero is reached
-            if n == len(graphemes) - 1 and self.mapping.cur_depth > 0:
-                p = self.parser.alphabet.embedders[self.parser.cur_lvl][1]
-                g = self.parser.alphabet.get_grapheme(p)
-                graphemes.append(g)
-
-        return True
+                    matches[slot].append(i)
+        return matches
 
     def _shift_nonbinary_mappings(
         self,
         dich: Dichotomy,
+        elems: list[Element] | None = None,
         invert: bool = False,
         force: bool = False,
     ) -> bool:
-        """Shifts the mappings from the first to the second mask of the dichotomy
-        (or vice versa if invert is True) continuously slot by slot as long as
-        the shift produces a valid mapping.
+        """Shifts the mappings of the elements in the given list (or in the
+        current stack if none are given) from the first to the second mask
+        of the dichotomy (or vice versa if invert is True) continuously slot by slot
+        as long as the shift produces a valid mapping.
         """
         # Shift is only possible if the target mask has an empty slot.
         # Equivalent mappings are shifted together or not at all,
         # compounds from closest to farthest to the target mask
         # and only if they fit (given lembs and perms).
-
         # Get keys for both masks
+        level = dich.level
+        if elems is None:
+            elems = self.processor.get_stack(level, interval=True)
+
         mask_from, mask_to = dich.masks if not invert else dich.masks[::-1]
-        elems = self.mapping.stack
-        depth = self.mapping.cur_depth
-        matches = self.mapping.enumerate_elems(mask_from.num_key, dich.d)
+        matches_from = self._enumerate_elems(mask_from.num_key, elems, dich.d)
+        matches_to = self._enumerate_elems(mask_to.num_key, elems, dich.d)
 
         # Skip the shift to a non-empty mask unless forced
-        if not force and (mask_to.pos is not None or mask_to.rep > 0):
+        num_occupied = len(matches_to)
+        if not force and num_occupied > 0:
             return True
 
         # Setting the pointer to activate the target mask
@@ -580,13 +656,12 @@ class Mapper:
 
         # Perform the shift slot by slot
         slots_shifted, elems_shifted = 0, 0
-        num = min(mask_to.lemb + 1, len(matches))
-
-        # Reverse order?
-        for n, slot in enumerate(reversed(matches) if not dich.rev else matches):
+        num = mask_to.lemb + 1 - num_occupied
+        items = reversed(matches_from) if not dich.rev else matches_from
+        for n, slot in enumerate(items):
             slot_in_process = False
             if num > 0:
-                for i in matches[slot]:
+                for i in matches_from[slot]:
                     old_stance = str(elems[i].stance)
                     new_stance = elems[i].stance.copy()
                     new_stance.pos[dich.d] = mask_to.num_key[-1]
@@ -612,23 +687,31 @@ class Mapper:
 
         # Reset the dichotomies downstream of the mask &
         # subtract the shifted elements from the mask
-        self.parser.masker.reset_dichotomies(depth, mask_from.num_key)
-        mask_from.subtract(elems_shifted, slots_shifted)
+        if elems_shifted > 0:
+            self.processor.masker.reset_dichotomies(
+                level, mask_from.depth, mask_from.num_key
+            )
+            mask_from.subtract(elems_shifted, slots_shifted)
 
         return True
 
-    def _fill_empty_terminals(self, dich: Dichotomy) -> bool:
-        """Adds neutral elements to mirror those with no siblings at terminal nodes.
+    def _fill_empty_terminals(
+        self, dich: Dichotomy, elems: list[Element] | None = None
+    ) -> bool:
+        """Adds neutral elements to mirror those with no siblings at terminal node
+        within the given list (or in the current stack if none are given).
+
         Only applicable to the zeroth level.
         """
-        if self.parser.cur_lvl != 0:
+        level, depth = dich.level, dich.depth
+        if level != 0:
             return True
+        if elems is None:
+            elems = self.processor.get_stack(level, interval=True)
 
-        elems = self.mapping.stack
-        depth = self.mapping.cur_depth
         left_nk, right_nk = dich.masks[0].num_key, dich.masks[1].num_key
-        left_matches = self.mapping.enumerate_elems(left_nk, dich.d)
-        right_matches = self.mapping.enumerate_elems(right_nk, dich.d)
+        left_matches = self._enumerate_elems(left_nk, elems, dich.d)
+        right_matches = self._enumerate_elems(right_nk, elems, dich.d)
 
         to_fill = [
             (left_matches[lm], dich.masks[1], elems[left_matches[lm][0]])
@@ -646,8 +729,8 @@ class Mapper:
                 continue
             op_stance = e.stance.copy()
             op_stance.pos[-1] = 1 - op_stance.pos[-1]
-            g = self.parser.alphabet.get_grapheme(neut_mask.tneuts[depth])
-            neut = Element(g, op_stance, self.parser.cur_lvl)
+            g = self.processor.alphabet.get_token(neut_mask.tneuts[depth])
+            neut = Element(g, op_stance, level)
             fit = self._fit_element(neut, op_stance, term_only=True)
             if not fit:
                 logger.warning(
@@ -664,17 +747,20 @@ class Mapper:
                     elems[insert_index].head.content.base.order + slot - 1
                 )
                 elems.insert(insert_index + slot, neut)
+                self.processor.get_stack(level).insert(insert_index + slot, neut)
 
         return True
 
-    def _validate_mapping(self, elems: Optional[List[Element]] = None) -> bool:
-        """Checks that every mapping complies with terminal permissions.
-        Only applicable to the zeroth level.
+    def _validate_mapping(self, e: Element | None = None) -> bool:
+        """Checks that every stance in the given element's content
+        (or in the current stack if none are given) complies with
+        terminal permissions.
         """
-        if self.parser.cur_lvl != 0:
-            return True
-        if elems is None:
-            elems = self.mapping.stack
+        level = 0
+        if e is None:
+            elems = self.processor.get_stack(level, interval=True)
+        else:
+            elems = e.content
 
         cnt = 0
         addr = None
@@ -682,150 +768,55 @@ class Mapper:
             cnt = cnt + 1 if e.stance.pos + e.stance.rep[:-1] == addr else 0
             addr = e.stance.pos + e.stance.rep[:-1]
 
-            rev = bool(self.parser.grules.revs[self.parser.cur_lvl][0][e.num])
+            rev = bool(self.processor.grules.revs[level][0][e.num])
             addrs = [e for e in elems if e.stance.pos + e.stance.rep[:-1] == addr]
 
-            perms = self.parser.srules.tperms[e.num]
+            perms = self.processor.srules.tperms[e.num]
             priority = cnt if not rev else len(addrs) - 1 - cnt
-            perm = perms[min(self.mapping.cur_depth, len(perms) - 1)][priority]
+            perm = perms[min(e.stance.depth, len(perms) - 1)][priority]
 
-            aclass = e.head.content.aclass
+            aclass = e.head.content.base.aclass
             base = str(e.head.content.base)
             if not any([base in perm or aclass in perm, aclass == "Wildcard"]):
-                logger.error(
+                logger.warning(
                     f"-> No permission for '{e.head}' [{aclass}] at {e.stance}"
                 )
                 return False
 
         return True
 
-    def _determine_stance(self, e: Element) -> Stance | bool:
-        """Produces the stance for the given element by deciding the dichotomies."""
-        # Cycle through the ranks and determine the positions of the string for each
-        depth = self.mapping.cur_depth
-        e.stance = Stance(depth=depth)
-        ds = self.parser.masker.masks[self.parser.cur_lvl][depth]
-        for d, _ in enumerate(ds):
-            dich = self.parser.masker.get_dichs(e.stance, depth)
-            decision = self._decide_dichotomy(e, dich)
-            if isinstance(decision, bool):
-                return decision
-            else:
-                e.stance.pos.append(decision[0])
-                e.stance.rep.append(decision[1])
-
-        return e.stance
-
-    def _decide_dichotomy(
-        self, e: Element, dich: Dichotomy, forbid_shift: bool = False
-    ) -> Tuple[int, int] | bool:
-        """Produces the decision for the given element and dichotomy, linking
-        the former to either first or second mask of the latter.
-        """
-        fit = None
-        depth = self.mapping.cur_depth
-
-        # Conditions of fit for the 1st and 2nd masks
-        conds = [
-            any((not dich.pointer == 1, not dich.ret)),
-            any((dich.pointer == 0, not dich.skip)),
-        ]
-        # Results of fit for the masks: tuple(pos, rep)
-        comps = [
-            dich.masks[0].compare(e, dich.split),
-            dich.masks[1].compare(e, dich.split),
-        ]
-
-        # Skip to the second mask if the breaker count is positive
-        if self.mapping.breaks[depth] > 0:
-            self.mapping.breaks[depth] -= 1
-            if not comps[1]:
-                return False
-            # Breaking is permanent, so fitting to the first mask is now forbidden
-            dich.masks[0].freeze = True
-            fit = 1
-
-        # Determine the fit the normal way
-        if not fit:
-            # If both masks are fitting, choose the first one unless
-            # it is the only one that increases rep
-            if conds[0] and comps[0] and conds[1] and comps[1]:
-                if comps[1][1] == dich.masks[1].rep and comps[0][1] > dich.masks[0].rep:
-                    fit = 1
-                else:
-                    fit = 0
-            # First mask fitting (the second one wasn't fit OR ret is not forbidden)
-            elif conds[0] and comps[0]:
-                fit = 0
-            # Second mask fitting (the first one wasn't fit OR skip is not forbidden)
-            elif conds[1] and comps[1]:
-                fit = 1
-            # Otherwise and if the dich is non-binary, perform a shift and try again
-            elif dich.nb and not forbid_shift:
-                self._shift_nonbinary_mappings(dich, invert=True, force=True)
-                return self._decide_dichotomy(e, dich, forbid_shift=True)
-            # If all fails
-            else:
-                logger.warning(f"=> Could not decide {dich} for {e}")
-                return False
-
-        # Attempt closure if the obtained fit flips the pointer to 1
-        if not dich.terminal and (dich.pointer or 0) != fit:
-            closure = self._close_dichotomies(dich)
-            if not closure:
-                return False
-
-        dich.pointer = fit
-        old_mask = f"{dich.masks[fit]}"
-
-        # Prepare the decision to output
-        self.parser.masker.set_dichotomy(dich, comps[fit], depth)
-        pos = fit if not dich.rev else 1 - fit
-        rev = dich.masks[fit].rep
-
-        new_mask = f"{dich.masks[fit]}"
-        num_strings = ["1st", "2nd"]
-        content = f"-> Fitting {e.head.content} to the {num_strings[fit]}"
-        if dich.split:
-            logger.debug(f"{content} mask {new_mask}")
-        else:
-            logger.debug(f"{content} mask {old_mask} → {new_mask}")
-
-        return (pos, rev)
-
-    def _close_clause(self) -> bool:
-        """Closes the last fitted branch of the topmost dichotomy
-        and applies special rules to validate the final mapping.
-        """
-        depth = self.mapping.cur_depth
-        dich = self.parser.masker.masks[self.parser.cur_lvl][depth][0][0]
-
-        if not self._close_dichotomies(dich):
-            logger.error("Failed to close the dichotomies")
-            return False
-
-        if not self._validate_mapping():
-            logger.error("Failed to validate the mapping")
-            return False
-
-        return True
-
-    def _close_dichotomies(self, dich: Dichotomy) -> bool:
+    def _close_dichotomies(self, target: Dichotomy | Element) -> bool:
         """For dichotomies downstream of the given dichotomy, performs
         the finalizing operations: shift the mappings for the non-binary ones,
         add neutral elements as needed for the terminal ones.
+
+        If an element is given, starts from the last fitted branch
+        of the topmost dichotomy.
         """
+
+        if isinstance(target, Element):
+            elems = target.content
+            level, depth = target.content[0].level, target.content[0].stance.depth
+            dich = self.processor.masker.get_dichs(Stance(depth=depth), level)
+        else:
+            elems = None
+            dich = target
+            level, depth = dich.level, dich.depth
+
         res = True
-        stance = Stance(pos=dich.masks[dich.pointer or 0].num_key)
-        depth = self.mapping.cur_depth
-        dichs = self.parser.masker.get_dichs(stance, depth, downstream=True)
+        stance = Stance(pos=dich.masks[dich.pointer or 0].num_key, depth=depth)
+        dichs = self.processor.masker.get_dichs(stance, level, downstream=True)
         invert = bool(dich.pointer or 0)
-        for dich in dichs:
-            if dich.nb:
-                res = res and self._shift_nonbinary_mappings(dich, invert=invert)
-            if dich.terminal:
-                res = res and self._fill_empty_terminals(dich)
-        return bool(res)
+
+        for cdich in dichs:
+            if cdich.nb:
+                res = res and self._shift_nonbinary_mappings(
+                    cdich, elems, invert=invert
+                )
+            if cdich.terminal:
+                res = res and self._fill_empty_terminals(cdich, elems)
+
+        return res
 
     def _fit_element(
         self,
@@ -836,45 +827,128 @@ class Mapper:
         force_mov: bool = False,
     ) -> bool:
         """Records the element if it can be fit with the given stance."""
-        depth = self.mapping.cur_depth
         if stance is None:
             stance = e.stance
         for p, pos in enumerate(stance.pos):
             if (term_only and p != len(stance.pos) - 1) or (d is not None and p < d):
                 continue
             part_stance = stance.copy(p)
-            dich = self.parser.masker.get_dichs(part_stance, depth)
+            dich = self.processor.masker.get_dichs(part_stance, e.level)
             cur_mask = pos if not dich.rev else 1 - pos
 
             comp = dich.masks[cur_mask].compare(e, dich.split, force_mov)
             if comp:
                 e.stance = stance
                 dich.pointer = cur_mask
-                self.parser.masker.set_dichotomy(dich, comp, depth)
+                self.processor.masker.set_dichotomy(dich, comp, e.level)
             else:
                 return False
         return True
 
-    def parse(self, graphemes: List[Grapheme]) -> Mapping | bool:
-        """Parses the input string, producing the mapping of elements to stances
-        and applying it to the dichotomic tree.
+    def determine_stance(self, e: Element) -> bool:
+        """Produces the stance for the given element by deciding the dichotomies."""
+        if e.stance is None:
+            e.stance = Stance()
+        for d in range(0, sum(self.processor.grules.struct[e.level])):
+            dich = self.processor.masker.get_dichs(e.stance, e.level)
+            if not self.decide_dichotomy(e, dich):
+                return False
+        return True
+
+    def decide_dichotomy(
+        self, e: Element, dich: Dichotomy, forbid_shift: bool = False
+    ) -> bool:
+        """Produces the decision for the given element and dichotomy, linking
+        the former to either first or second mask of the latter.
         """
-        self.graphemes = graphemes
-        self.mapping = Mapping(self.parser.cur_lvl)
-        self.mapping.heads = self.parser.grules.heads[self.parser.cur_lvl]
+        fit = None
+        # Conditions of fit for the 1st and 2nd masks
+        conds = [
+            any((not dich.pointer == 1, not dich.ret)),
+            any((dich.pointer == 0, not dich.skip)),
+        ]
+        # Results of fit for the masks
+        comps = [
+            dich.masks[0].compare(e, dich.split),
+            dich.masks[1].compare(e, dich.split),
+        ]
+        # Skip to the second mask if the breaker count is positive
+        if self.processor.cur_breaks[e.level][e.stance.depth] > 0:
+            self.processor.cur_breaks[e.level][e.stance.depth] -= 1
+            if not comps[1]:
+                return False
+            # Breaking is permanent, so fitting to the first mask is now forbidden
+            dich.masks[0].freeze = True
+            fit = 1
 
-        # Apply general rules to produce the mapping
-        res = self._produce_mapping()
-        if not res:
-            logger.error("Failed to produce or finalize the mapping")
-            return False
+        # Determine the fit the normal way
+        if not fit:
+            # If both masks are fitting, choose the first one unless
+            # it is the only one that increases rep
+            if all([conds[0], comps[0], conds[1], comps[1]]):
+                if comps[1][1] == dich.masks[1].rep and comps[0][1] > dich.masks[0].rep:
+                    fit = 1
+                else:
+                    fit = 0
+            # First mask fitting (the second one wasn't fit OR ret is not forbidden)
+            elif all([conds[0], comps[0]]):
+                fit = 0
+            # Second mask fitting (the first one wasn't fit OR skip is not forbidden)
+            elif all([conds[1], comps[1]]):
+                fit = 1
+            # Otherwise and if the dich is non-binary, perform a shift and try again
+            elif dich.nb and not forbid_shift:
+                self._shift_nonbinary_mappings(dich, invert=True, force=True)
+                return self.decide_dichotomy(e, dich, forbid_shift=True)
+            # If all fails
+            else:
+                logger.warning(f"=> Could not decide {dich} for {e}")
+                return False
 
-        # Do the backward-looking corrections and apply the special rules
-        if self._close_clause():
-            self.graphemes = []
-            return self.mapping
+        # Attempt closure if the obtained fit flips the pointer to 1
+        if not dich.terminal and (dich.pointer or 0) != fit:
+            closure = self._close_dichotomies(dich)
+            if not closure:
+                logger.warning(f"=> Could not close {dich}")
+                return False
+
+        dich.pointer = fit
+        old_mask = f"{dich.masks[fit]}"
+
+        # Prepare the decision
+        self.processor.masker.set_dichotomy(dich, comps[fit], e.level)
+        pos = fit if not dich.rev else 1 - fit
+        rep = dich.masks[fit].rep
+
+        new_mask = f"{dich.masks[fit]}"
+        num_strings = ["1st", "2nd"]
+        content = f"-> Fitting {e.head.content} to the {num_strings[fit]}"
+        if dich.split:
+            logger.debug(f"{content} mask {new_mask}")
         else:
+            logger.debug(f"{content} mask {old_mask} → {new_mask}")
+        e.stance.pos.append(pos)
+        e.stance.rep.append(rep)
+
+        return True
+
+    def close(self, e: Element) -> bool:
+        """Closes the dichotomy corresponding to the given element and applies
+        special rules to validate its content.
+        """
+        if e.molar:
+            return True
+
+        if not self._close_dichotomies(e):
+            logger.warning("Failed to close the dichotomies")
+            raise 
             return False
+
+        if not self._validate_mapping(e):
+            logger.warning("Failed to validate the mapping")
+            return False
+
+        return True
 
 
 class Interpreter:
@@ -882,16 +956,15 @@ class Interpreter:
     interpretations to the functions of its nodes with the received arguments.
     """
 
-    def __init__(self, parser: Parser) -> None:
-        self.parser = parser
+    def __init__(self, processor: Processor) -> None:
+        self.processor = processor
         return
 
-    def _apply(self, elems: List[Element], tree: Tree) -> None:
+    def apply(self, elems: list[Element], tree: Tree) -> None:
         """Applies the given elements to the given tree using their stances.
         Embeds complexes and compounds in the tree as needed.
         """
-        st = self.parser.grules.struct[self.parser.cur_lvl]
-        finals = [r + 1 == s for s in st for r in range(s)]
+        finals = [r + 1 == s for s in tree.struct for r in range(s)]
         # Iterating the elements and setting each
         for i, e in enumerate(elems):
             # Accounting for reps
@@ -905,20 +978,24 @@ class Interpreter:
                             tree.embed_compound(base_node)
 
             # Accounting for depth
-            if e.complex:
+            if not e.molar and e.content[0].level == e.level:
                 base_node = tree.get_nodes(e.stance)
                 tree.embed_complex(base_node)
-                self._apply(e.content, base_node.complexes[-1])
+                self.apply(e.content, base_node.complexes[-1])
 
-            tree.set_element(e, set_all=True)
+            if e.level > 0:
+                sep = self.processor.alphabet.separators[e.level - 1]
+            else:
+                sep = ""
+            tree.set_element(e, sep, set_all=True)
 
         return
 
-    def _determine_ctype(self, tree: Tree) -> None:
+    def determine_ctype(self, tree: Tree) -> None:
         """Determines the composition type of the element recorded in the tree."""
         # Try different types one by one
         # Types specific for the depth level go first, general types last
-        ctypes = self.parser.dialect.ctypes[self.parser.cur_lvl]
+        ctypes = self.processor.dialect.ctypes[tree.level]
         if not ctypes:
             ctypes = []
         elif str(tree.depth) in ctypes:
@@ -964,11 +1041,11 @@ class Interpreter:
         # Do the same for all embedded trees
         for node in [n for n in tree.all_nodes if n.complexes]:
             for c in node.complexes:
-                self._determine_ctype(c)
+                self.determine_ctype(c)
 
         return
 
-    def _interpret(self, tree: Tree) -> None:
+    def interpret(self, tree: Tree) -> None:
         """Inscribes interpretations defined in the dialect to the tree nodes
         depending on their content.
         """
@@ -978,9 +1055,9 @@ class Interpreter:
             if not node.content:
                 continue
             e = node.content[0]
-            feature = self.parser.dialect.get_feature(
-                e.head.content.index,
-                e.head.content.aclass,
+            feature = self.processor.dialect.get_feature(
+                e.header.content.base.index,
+                e.header.content.base.aclass,
                 node.stance,
                 tree.stance,
                 tree.ctype,
@@ -991,12 +1068,12 @@ class Interpreter:
         # Interpret the embedded trees
         for node in [n for n in tree.all_nodes if n.complexes]:
             for c in node.complexes:
-                self._interpret(c)
+                self.interpret(c)
         return
 
     def describe(
         self,
-        tree: Optional[Tree | int] = None,
+        tree: Tree | int | None = None,
         verbose: bool = False,
         prefix: str = "·",
     ) -> None:
@@ -1004,12 +1081,12 @@ class Interpreter:
         into the tree.
         """
         if tree is None:
-            tree = self.parser.trees[0]
+            tree = self.processor.trees[-1][0]
         elif isinstance(tree, int):
-            tree = self.parser.trees[tree]
+            tree = self.processor.trees[tree][0]
 
         logger.info(f"{prefix} {tree.ctype} '{tree.working_string}'")
-        nodes = tree.get_interpretable_nodes()
+        nodes = tree.getinterpretable_nodes()
         # Describe the elements mapped to the nodes themselves and their compounds
         featureless = []
         for node in nodes:
