@@ -1,6 +1,6 @@
 from math import log
 
-from typing import Dict, List, Optional
+from typing import Dict
 from dataclasses import dataclass, field
 
 
@@ -11,7 +11,7 @@ class Alphabet:
     """
 
     bases: Dict[str, Dict]
-    modifiers: Dict[str, Dict[str, List[str]]]
+    modifiers: Dict[str, Dict[str, list[str]]]
     substitutions: Dict[str, str]
 
     def __post_init__(self) -> None:
@@ -37,7 +37,7 @@ class Alphabet:
             for subcat in d[cat]:
                 for aclass in d[cat][subcat]:
                     for level, values in enumerate(d[cat][subcat][aclass]):
-                        if isinstance(values, List):
+                        if isinstance(values, list):
                             for q, vals in enumerate(values):
                                 for i, val in enumerate(vals):
                                     self.lookup[val] = {
@@ -78,16 +78,16 @@ class GeneralRules:
     of elements to masks in relation to dichotomies.
     """
 
-    struct: List[List[int]]
-    heads: List[List[int]]
-    rets: List[List[int]]
-    skips: List[List[int]]
-    splits: List[List[int]]
-    revs: List[List[int]]
-    dembs: List[List[int]]
-    perms: List[List[str]]
-    lembs: List[List[List[int]]]
-    wilds: List[List[List[int]]]
+    struct: list[list[int]]
+    heads: list[list[int]]
+    rets: list[list[int]]
+    skips: list[list[int]]
+    splits: list[list[int]]
+    revs: list[list[int]]
+    dembs: list[list[int]]
+    perms: list[list[str]]
+    lembs: list[list[list[int]]]
+    wilds: list[list[list[int]]]
 
     def __post_init__(self) -> None:
         self._unravel_term_params()
@@ -126,25 +126,25 @@ class SpecialRules:
     or forbidding certain characters for certain stances post-mapping.
     """
 
-    tperms: List[List[List[str]]]
-    tneuts: List[List[List[str]]]
+    tperms: list[list[list[str]]]
+    tneuts: list[list[list[str]]]
 
 
 @dataclass
 class Dialect:
     """A holder for the parameters that guide the interpretation of node features."""
 
-    ctypes: List[Dict[str, str]]
-    untyped: List[Feature]
-    typed: List[Feature]
+    ctypes: list[Dict[str, str]]
+    untyped: list[Feature]
+    typed: list[Feature]
 
     def get_feature(
         self,
         index: int,
         content_class: str,
         stance: Stance,
-        cstance: Optional[Stance] = None,
-        ctype: Optional[str] = None,
+        cstance: Stance | None,
+        ctype: str | None,
     ) -> Feature | None:
         """Returns the feature described by the stances and character index,
         or None if no feature is found. If content type is supplied, searches
@@ -171,10 +171,10 @@ class Feature:
 
     # None for untyped, str for typed features
     ctype: str | None
-    pos: List[int]
-    rep: List[int]
-    cpos: List[int]
-    crep: List[int]
+    pos: list[int]
+    rep: list[int]
+    cpos: list[int]
+    crep: list[int]
     content_class: str
     priority: int
     index: int
@@ -186,13 +186,12 @@ class Feature:
     def __repr__(self) -> str:
         return f"{self.function_name}: {self.argument_name}"
 
-
 @dataclass
 class Stance:
     """A representation of the mapping between the element and the mask."""
 
-    pos: List[int] = field(default_factory=lambda: [])
-    rep: List[int] = field(default_factory=lambda: [])
+    pos: list[int] = field(default_factory=lambda: [])
+    rep: list[int] = field(default_factory=lambda: [])
     depth: int = 0
 
     def __repr__(self) -> str:
@@ -236,7 +235,7 @@ class Token:
     """A holder for elementary emic units of the language."""
 
     base: Symbol
-    modifiers: List[Symbol] = field(default_factory=lambda: [])
+    modifiers: list[Symbol] = field(default_factory=lambda: [])
 
     def __repr__(self) -> str:
         return self.content or "Empty symbol"

@@ -1,9 +1,60 @@
 from math import log
 
-from typing import Tuple, List, Optional
+from typing import Dict, Tuple, List, Optional
 
 from scripts.parser_dataclasses import Stance, Token, Feature
 
+
+class Mapping:
+    """A holder for the current stacks of elements and the parameter values
+    involved in parsing.
+    """
+
+    def __init__(self, levels: range):
+        self.cur_breaks = [[0] for lvl in levels]
+        self.cur_dpt = [0 for lvl in levels]
+        self.cur_bdr = [0 for lvl in levels]
+        self.elems = [[] for lvl in levels]
+        
+    def get_interval(self, lvl: int) -> list:
+        """Returns the interval on the given level consisting of elements
+        that are yet to be wrapped into an element of the higher level.
+        """
+        elems = self.elems[lvl][self.cur_bdr[lvl] :]
+        return elems
+
+    def update_interval(self, lvl: int) -> None:
+        """Moves the interval border on the given level to the end of its
+        element list.
+        """
+        self.cur_bdr[lvl] = len(self.elems[lvl])
+        return
+
+    def get_stack(self, lvl: int = -1, interval: bool = False) -> list:
+        """Returns the list of elements at the given level
+        to which the next element should be appended.
+        """
+        stack = self.get_interval(lvl) if interval else self.elems[lvl]
+        while len(stack) > 0 and isinstance(stack[-1], list):
+            stack = stack[-1]
+        return stack
+
+    def enumerate_elems(
+        self, num_key: list[int], elems: list, d: int
+    ) -> Dict[str, list[int]]:
+        """Returns a list of indices of the given list of elements that conform
+        to the given key, arranging them into a dict of lists where the keys are
+        the reps before d.
+        """
+        matches = {}
+        for i, e in enumerate(elems):
+            if e.stance.pos[: len(num_key)] == num_key:
+                slot = "".join(str(r) for r in e.stance.rep[:d])
+                if slot not in matches:
+                    matches[slot] = [i]
+                else:
+                    matches[slot].append(i)
+        return matches
 
 class Dichotomy:
     """A combination of the mask pair, parameters guiding the choice between them,
@@ -262,6 +313,94 @@ class Mask:
         if self.pos is not None:
             self.pos = max(self.pos - pos_delta, 0)
         return
+
+
+class Element:
+    """A language element is an alphabetic string assigned a stance
+    of a certain level.
+    """
+
+    def __init__(
+        self,
+        content: Token | List[Token],
+        stance: Optional[Stance] = None,
+        level: int = 0,
+    ) -> None:
+        self.content: Token | List[Token] | Element | List[Element] = content
+        self.stance: Stance | None = stance
+        self.level: int = level
+        self.molar: bool = not isinstance(self.content, List)
+        self.head: Element = self
+        return
+
+    def __repr__(self) -> str:
+        return self._represent()
+
+    def _represent(self, top: bool = True) -> str:
+        if self.molar:
+            return str(self.content)
+        else:
+            if top:
+                out = ""
+                for c in self.content:
+                    out += c._represent(top=False)
+                    if c is self.head:
+                        out += "̲"
+                return out
+            else:
+                return self.head._represent(top=False)
+
+    @property
+    def view(self):
+        """String representation of the tokens in the element's content."""
+        return "".join([str(g) for g in self.content])
+
+    @property
+    def num(self) -> int:
+        """Returns the number represented in the binary form by the stance."""
+        key = "".join(str(s) for s in self.stance.pos)
+        return int(key, 2)
+
+    @property
+    def order(self) -> int:
+        """The order of the element is that of its head's content token."""
+        return self.head.content.order
+
+    @property
+    def header(self) -> Element:
+        """The lowest head of the element."""
+        source = self
+        while source.head is not source:
+            source = source.head
+        return source
+
+    @property
+    def preheader(self) -> Element:
+        """The lowest head of the element that is still of the same level."""
+        source = self
+        while source.head is not source and source.head.level == source.level:
+            source = source.head
+        return source
+
+    def set_head(self, nums: int | list[int], fallback: bool = False) -> bool:
+        """Finds the content element with the given binary number
+        and sets it as the head.
+        """
+        # Simple elements always have themselves as heads
+        if self.molar:
+            return False
+        # Try each permitted stance one by one until the first fitting element
+        for num in nums if isinstance(nums, list) else [nums]:
+            for e in self.content:
+                if int(e.stance.key or "0", 2) == num:
+                    self.head = e
+                    return True
+        # If no elements are found, set the first one
+        if fallback:
+            self.head = self.content[0]
+            return True
+        else:
+            return False
 
 
 class Tree:
@@ -562,91 +701,3 @@ class Node:
             ch.stance.rep[: len(value.rep)] = value.rep
             ch.stance.depth = value.depth
         return
-
-
-class Element:
-    """A language element is an alphabetic string assigned a stance
-    of a certain level.
-    """
-
-    def __init__(
-        self,
-        content: Token | List[Token],
-        stance: Optional[Stance] = None,
-        level: int = 0,
-    ) -> None:
-        self.content: Token | List[Token] | Element | List[Element] = content
-        self.stance: Stance | None = stance
-        self.level: int = level
-        self.molar: bool = not isinstance(self.content, List)
-        self.head: Element = self
-        return
-
-    def __repr__(self) -> str:
-        return self._represent()
-
-    def _represent(self, top: bool = True) -> str:
-        if self.molar:
-            return str(self.content)
-        else:
-            if top:
-                out = ""
-                for c in self.content:
-                    out += c._represent(top=False)
-                    if c is self.head:
-                        out += "̲"
-                return out
-            else:
-                return self.head._represent(top=False)
-
-    @property
-    def view(self):
-        """String representation of the tokens in the element's content."""
-        return "".join([str(g) for g in self.content])
-
-    @property
-    def num(self) -> int:
-        """Returns the number represented in the binary form by the stance."""
-        key = "".join(str(s) for s in self.stance.pos)
-        return int(key, 2)
-
-    @property
-    def order(self) -> int:
-        """The order of the element is that of its head's content token."""
-        return self.head.content.order
-
-    @property
-    def header(self) -> Element:
-        """The lowest head of the element."""
-        source = self
-        while source.head is not source:
-            source = source.head
-        return source
-
-    @property
-    def preheader(self) -> Element:
-        """The lowest head of the element that is still of the same level."""
-        source = self
-        while source.head is not source and source.head.level == source.level:
-            source = source.head
-        return source
-
-    def set_head(self, nums: int | list[int], fallback: bool = False) -> bool:
-        """Finds the content element with the given binary number
-        and sets it as the head.
-        """
-        # Simple elements always have themselves as heads
-        if self.molar:
-            return False
-        # Try each permitted stance one by one until the first fitting element
-        for num in nums if isinstance(nums, list) else [nums]:
-            for e in self.content:
-                if int(e.stance.key or "0", 2) == num:
-                    self.head = e
-                    return True
-        # If no elements are found, set the first one
-        if fallback:
-            self.head = self.content[0]
-            return True
-        else:
-            return False

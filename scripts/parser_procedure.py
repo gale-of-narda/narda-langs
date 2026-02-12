@@ -3,10 +3,10 @@ import json
 import logging
 import logging.config
 
-from typing import Dict, Tuple, List, Optional, Generator
+from typing import Tuple, Optional, Generator
 from pathlib import Path
 
-from scripts.parser_entities import Dichotomy, Tree, Node, Mask, Element
+from scripts.parser_entities import Mapping, Dichotomy, Tree, Node, Mask, Element
 from scripts.parser_dataclasses import Alphabet, GeneralRules, SpecialRules
 from scripts.parser_dataclasses import Dialect, Feature, Stance, Token, Symbol
 
@@ -51,10 +51,7 @@ class Processor:
         """Parses the input string and applies the parsing to the trees."""
         logger.info(f"Parsing {instr}")
         # Emptying the parameters
-        self.cur_breaks = [[0] for lvl in self.levels]
-        self.cur_dpt = [0 for lvl in self.levels]
-        self.cur_bdr = [0 for lvl in self.levels]
-        self.elems = [[] for lvl in self.levels]
+        self.mapping = Mapping(self.levels)
         self.trees = [[] for lvl in self.levels]
         self.streamer.instr = instr
         self.masker.construct()
@@ -64,13 +61,13 @@ class Processor:
         except Exception:
             logger.info(f"Failed to parse {instr}")
             return False
-        logger.info(f"Successfully parsed {instr} as {self.elems[-1]}")
+        logger.info(f"Successfully parsed {instr} as {self.mapping.elems[-1]}")
         # Applying the obtained parsing to the trees
         for lvl in self.levels:
             if lvl < len(self.levels) - 1:
-                elems = [e.preheader.content for e in self.elems[lvl + 1]]
+                elems = [e.preheader.content for e in self.mapping.elems[lvl + 1]]
             else:
-                elems = [self.elems[lvl]]
+                elems = [self.mapping.elems[lvl]]
             for es in elems:
                 tree = Tree(self.grules.struct[lvl], lvl)
                 self.trees[lvl].append(tree)
@@ -79,6 +76,10 @@ class Processor:
                     self.interpreter.determine_ctype(tree)
                     self.interpreter.interpret(tree)
         return True
+
+    def get_stances(self, lvl: int = -1) -> list[Stance]:
+        """Produces the list of stances of the elements of the given level."""
+        return [e.stance for e in self.mapping.elems[lvl]]
 
     def draw_tree(
         self,
@@ -123,14 +124,14 @@ class Processor:
         elif isinstance(to_gloss, str):
             self.process(to_gloss)
             self.gloss(self.parser.trees[-1])
-        elif isinstance(to_gloss, List):
+        elif isinstance(to_gloss, list):
             items = to_gloss
         else:
             raise ValueError(f"Invalid input to gloss: {to_gloss}")
 
         glosses, current_glossless = [], ""
         for item in items:
-            if isinstance(item, List):
+            if isinstance(item, list):
                 if current_glossless:
                     glosses.append(f"{current_glossless}-")
                     current_glossless = ""
@@ -146,33 +147,6 @@ class Processor:
         gloss = "".join(glosses).strip("-")
 
         return gloss
-
-    def get_interval(self, lvl: int) -> list[Element]:
-        """Returns the interval on the given level consisting of elements
-        that are yet to be wrapped into an element of the higher level.
-        """
-        elems = self.elems[lvl][self.cur_bdr[lvl] :]
-        return elems
-
-    def update_interval(self, lvl: int) -> None:
-        """Moves the interval border on the given level to the end of its
-        element list.
-        """
-        self.cur_bdr[lvl] = len(self.elems[lvl])
-        return
-
-    def get_stances(self, lvl: int = -1) -> list[Stance]:
-        """Produces the list of stances of the elements of the given level."""
-        return [e.stance for e in self.elems[lvl]]
-
-    def get_stack(self, lvl: int = -1, interval: bool = False) -> list[Element]:
-        """Returns the list of elements at the given level
-        to which the next element should be appended.
-        """
-        stack = self.get_interval(lvl) if interval else self.elems[lvl]
-        while len(stack) > 0 and isinstance(stack[-1], list):
-            stack = stack[-1]
-        return stack
 
 
 class Loader:
@@ -275,8 +249,8 @@ class Streamer:
     elements to be parsed, depth and level structure accounted.
     """
 
-    def __init__(self, processor: Processor) -> None:
-        self.processor = processor
+    def __init__(self, prc: Processor) -> None:
+        self.prc = prc
         return
 
     def _tokenize(self) -> Generator[Token, None, None]:
@@ -286,11 +260,11 @@ class Streamer:
         t: Token | None = None
         for i, ch in enumerate(self.instr):
             # Wrapping the char into a symbol if it is alphabetic
-            if ch in self.processor.alphabet.substitutions:
-                ch = self.processor.alphabet.substitutions[ch]
-            if ch not in self.processor.alphabet.lookup:
+            if ch in self.prc.alphabet.substitutions:
+                ch = self.prc.alphabet.substitutions[ch]
+            if ch not in self.prc.alphabet.lookup:
                 continue
-            params = self.processor.alphabet.lookup[ch]
+            params = self.prc.alphabet.lookup[ch]
             s = Symbol(ch, *params.values(), i)
             # Wrapping the base symbol into a token (if base)
             # or modifying the previous one (if modifier)
@@ -318,7 +292,7 @@ class Streamer:
             # When the last token is reached, close each level by parsing
             # a virtual separator
             if t is None:
-                for lvl in self.processor.levels:
+                for lvl in self.prc.levels:
                     self.separate(lvl)
                 return True
             lvl = t.base.level
@@ -331,7 +305,7 @@ class Streamer:
                 elif t.base.aclass == "Separator":
                     self.separate(lvl)
                 # Decreasing depth of complex embedding
-                elif t.is_popper(lvl) and self.processor.cur_dpt[lvl] > 0:
+                elif t.is_popper(lvl) and self.prc.mapping.cur_dpt[lvl] > 0:
                     self.pop(lvl)
                 # Increasing depth of complex embedding
                 elif t.is_pusher(lvl):
@@ -347,11 +321,11 @@ class Streamer:
         If a token is given, wraps it into a new element beforehand.
         """
         e = to_add if isinstance(to_add, Element) else Element(to_add, level=0)
-        e.stance = Stance(depth=self.processor.cur_dpt[e.level])
-        if not self.processor.mapper.close(e):
+        e.stance = Stance(depth=self.prc.mapping.cur_dpt[e.level])
+        if not self.prc.mapper.close(e):
             raise Exception("Parsing failed")
         self.parse(e)
-        stack = self.processor.get_stack(lvl)
+        stack = self.prc.mapping.get_stack(lvl)
         stack.append(e)
         return
 
@@ -363,12 +337,12 @@ class Streamer:
         # If the current depth of embedding is above zero on the same level,
         # pop until it reaches zero
         self.pop(lvl, full=True)
-        interval = self.processor.get_interval(lvl)
-        if interval and lvl < len(self.processor.levels) - 1:
+        interval = self.prc.mapping.get_interval(lvl)
+        if interval and lvl < len(self.prc.levels) - 1:
             e = Element(interval, level=lvl + 1)
             self.add(e, lvl + 1)
-            self.processor.masker.construct(lvl)
-            self.processor.update_interval(lvl)
+            self.prc.masker.construct(lvl)
+            self.prc.mapping.update_interval(lvl)
         return
 
     def pop(self, lvl: int, full: bool = False) -> None:
@@ -376,22 +350,22 @@ class Streamer:
         wraps the current sublist of elements into an element of the same level,
         sets its head and parses it.
         """
-        while self.processor.cur_dpt[lvl] > 0:
+        while self.prc.mapping.cur_dpt[lvl] > 0:
             # Popping only operates on the latest item in the element buffer,
             # which must also be a list of elements
-            content = self.processor.elems[lvl][-1]
+            content = self.prc.mapping.elems[lvl][-1]
             if not isinstance(content, list):
                 return
             e = Element(content, level=lvl)
-            if not self.processor.mapper.close(e):
+            if not self.prc.mapper.close(e):
                 raise Exception("Parsing failed")
-            self.processor.masker.construct(lvl, self.processor.cur_dpt[lvl])
-            self.processor.cur_breaks[lvl][self.processor.cur_dpt[lvl]] = 0
-            self.processor.elems[lvl][-1] = e
-            self.processor.cur_dpt[lvl] -= 1
+            self.prc.masker.construct(lvl, self.prc.mapping.cur_dpt[lvl])
+            self.prc.mapping.cur_breaks[lvl][self.prc.mapping.cur_dpt[lvl]] = 0
+            self.prc.mapping.elems[lvl][-1] = e
+            self.prc.mapping.cur_dpt[lvl] -= 1
             self.parse(e)
             logger.debug(
-                f"-> Depth at level {lvl} decreased to {self.processor.cur_dpt[lvl]}"
+                f"-> Depth at level {lvl} decreased to {self.prc.mapping.cur_dpt[lvl]}"
             )
             if not full:
                 break
@@ -403,12 +377,12 @@ class Streamer:
         """
         if lvl > 0:
             self.separate(lvl - 1)
-        self.processor.elems[lvl].append([])
-        self.processor.cur_dpt[lvl] += 1
-        if self.processor.cur_dpt[lvl] >= len(self.processor.cur_breaks[lvl]):
-            self.processor.cur_breaks[lvl].append(0)
+        self.prc.mapping.elems[lvl].append([])
+        self.prc.mapping.cur_dpt[lvl] += 1
+        if self.prc.mapping.cur_dpt[lvl] >= len(self.prc.mapping.cur_breaks[lvl]):
+            self.prc.mapping.cur_breaks[lvl].append(0)
         logger.debug(
-            f"-> Depth at level {lvl} increased to {self.processor.cur_dpt[lvl]}"
+            f"-> Depth at level {lvl} increased to {self.prc.mapping.cur_dpt[lvl]}"
         )
         return
 
@@ -418,9 +392,9 @@ class Streamer:
         """
         for mod in t.modifiers:
             if mod.asubcat == "Breaker" and mod.quality == int(late):
-                lvl, dpt = t.base.level, self.processor.cur_dpt[t.base.level]
-                self.processor.cur_breaks[lvl][dpt] += mod.index + 1
-                brk = self.processor.cur_breaks[lvl][dpt]
+                lvl, dpt = t.base.level, self.prc.mapping.cur_dpt[t.base.level]
+                self.prc.mapping.cur_breaks[lvl][dpt] += mod.index + 1
+                brk = self.prc.mapping.cur_breaks[lvl][dpt]
                 logger.debug(
                     f"-> Breaker count at level {lvl}, depth {dpt} increased to {brk}"
                 )
@@ -431,12 +405,12 @@ class Streamer:
         its dichotomic stance.
         """
         # Skipping levels beyond the set maximum
-        if e.level > self.processor.max_level:
+        if e.level > self.prc.max_level:
             return True
         # Elements with lists of elements as content must have heads
         if not e.molar:
-            e.set_head(self.processor.grules.heads[e.level - 1], fallback=True)
-        if self.processor.mapper.determine_stance(e):
+            e.set_head(self.prc.grules.heads[e.level - 1], fallback=True)
+        if self.prc.mapper.determine_stance(e):
             logger.debug(f"=> Assigned the stance {e.stance} to {e}")
             return True
         else:
@@ -448,11 +422,11 @@ class Masker:
     by the parsing procedure.
     """
 
-    def __init__(self, processor: Processor) -> None:
-        self.processor: Processor = processor
+    def __init__(self, prc: Processor) -> None:
+        self.prc: Processor = prc
         # Level > Depth > Rank > Dichotomy
-        self.masks: List[List[List[List[Dichotomy]]]] = [
-            [] for lvl in range(len(self.processor.grules.struct))
+        self.masks: list[list[list[list[Dichotomy]]]] = [
+            [] for lvl in range(len(self.prc.grules.struct))
         ]
         self.construct()
         return
@@ -462,16 +436,16 @@ class Masker:
         If level and depth are given, create or recreate the corresponding
         particular set of dichotomies.
         """
-        struct = self.processor.grules.struct
-        perms = self.processor.grules.perms
-        revs = self.processor.grules.revs
-        dembs = self.processor.grules.dembs
-        wilds = self.processor.grules.wilds
-        rets = self.processor.grules.rets
-        skips = self.processor.grules.skips
-        splits = self.processor.grules.splits
-        lembs = self.processor.grules.lembs
-        tneuts = self.processor.srules.tneuts
+        struct = self.prc.grules.struct
+        perms = self.prc.grules.perms
+        revs = self.prc.grules.revs
+        dembs = self.prc.grules.dembs
+        wilds = self.prc.grules.wilds
+        rets = self.prc.grules.rets
+        skips = self.prc.grules.skips
+        splits = self.prc.grules.splits
+        lembs = self.prc.grules.lembs
+        tneuts = self.prc.srules.tneuts
 
         for lvl in range(len(struct)):
             # Skip the irrelevant and reset the masks on relevant levels
@@ -534,7 +508,7 @@ class Masker:
 
         return
 
-    def _find_dichs(self, num_key: List[int], depth: int, lvl: int) -> List[Dichotomy]:
+    def _find_dichs(self, num_key: list[int], depth: int, lvl: int) -> list[Dichotomy]:
         """Returns dichotomies whose keys start with the given one."""
         if len(self.masks[lvl]) <= depth:
             self.construct(lvl, depth)
@@ -547,7 +521,7 @@ class Masker:
 
     def get_dichs(
         self, stance: Stance, lvl: int, downstream: bool = False
-    ) -> Dichotomy | List[Dichotomy]:
+    ) -> Dichotomy | list[Dichotomy]:
         """Returns the dichotomy with the key defined by the stance.
         If downstream is True, also returns every dichotomy downstream of it.
         """
@@ -577,7 +551,7 @@ class Masker:
         self,
         level: int,
         depth: int,
-        num_key: Optional[List[int]] = None,
+        num_key: Optional[list[int]] = None,
         total: bool = False,
     ) -> None:
         """Sets the pointers of dichotomies with and downstream of the given key
@@ -602,27 +576,10 @@ class Mapper:
     Successful termination of the parsing procedure is the criterion of grammaticality.
     """
 
-    def __init__(self, processor: Processor) -> None:
-        self.processor: Processor = processor
+    def __init__(self, prc: Processor) -> None:
+        self.prc: Processor = prc
         self.e: Element | None = None
         return
-
-    def _enumerate_elems(
-        self, num_key: List[int], elems: List[Element], d: int
-    ) -> Dict[str, List[int]]:
-        """Returns a list of indices of the given list of elements that conform
-        to the given key, arranging them into a dict of lists where the keys are
-        the reps before d.
-        """
-        matches = {}
-        for i, e in enumerate(elems):
-            if e.stance.pos[: len(num_key)] == num_key:
-                slot = "".join(str(r) for r in e.stance.rep[:d])
-                if slot not in matches:
-                    matches[slot] = [i]
-                else:
-                    matches[slot].append(i)
-        return matches
 
     def _shift_nonbinary_mappings(
         self,
@@ -642,12 +599,13 @@ class Mapper:
         # and only if they fit (given lembs and perms).
         # Get keys for both masks
         level = dich.level
+        mapping = self.prc.mapping
         if elems is None:
-            elems = self.processor.get_stack(level, interval=True)
+            elems = mapping.get_stack(level, interval=True)
 
         mask_from, mask_to = dich.masks if not invert else dich.masks[::-1]
-        matches_from = self._enumerate_elems(mask_from.num_key, elems, dich.d)
-        matches_to = self._enumerate_elems(mask_to.num_key, elems, dich.d)
+        matches_from = mapping.enumerate_elems(mask_from.num_key, elems, dich.d)
+        matches_to = mapping.enumerate_elems(mask_to.num_key, elems, dich.d)
 
         # Skip the shift to a non-empty mask unless forced
         num_occupied = len(matches_to)
@@ -691,9 +649,7 @@ class Mapper:
         # Reset the dichotomies downstream of the mask &
         # subtract the shifted elements from the mask
         if elems_shifted > 0:
-            self.processor.masker.reset_dichotomies(
-                level, mask_from.depth, mask_from.num_key
-            )
+            self.prc.masker.reset_dichotomies(level, mask_from.depth, mask_from.num_key)
             mask_from.subtract(elems_shifted, slots_shifted)
 
         return True
@@ -710,11 +666,11 @@ class Mapper:
         if level != 0:
             return True
         if elems is None:
-            elems = self.processor.get_stack(level, interval=True)
+            elems = self.prc.mapping.get_stack(level, interval=True)
 
         left_nk, right_nk = dich.masks[0].num_key, dich.masks[1].num_key
-        left_matches = self._enumerate_elems(left_nk, elems, dich.d)
-        right_matches = self._enumerate_elems(right_nk, elems, dich.d)
+        left_matches = self.prc.mapping.enumerate_elems(left_nk, elems, dich.d)
+        right_matches = self.prc.mapping.enumerate_elems(right_nk, elems, dich.d)
 
         to_fill = [
             (left_matches[lm], dich.masks[1], elems[left_matches[lm][0]])
@@ -732,7 +688,7 @@ class Mapper:
                 continue
             op_stance = e.stance.copy()
             op_stance.pos[-1] = 1 - op_stance.pos[-1]
-            g = self.processor.alphabet.get_token(neut_mask.tneuts[depth])
+            g = self.prc.alphabet.get_token(neut_mask.tneuts[depth])
             neut = Element(g, op_stance, level)
             fit = self._fit_element(neut, op_stance, term_only=True)
             if not fit:
@@ -750,7 +706,7 @@ class Mapper:
                     elems[insert_index].head.content.base.order + slot - 1
                 )
                 elems.insert(insert_index + slot, neut)
-                self.processor.get_stack(level).insert(insert_index + slot, neut)
+                self.prc.mapping.get_stack(level).insert(insert_index + slot, neut)
 
         return True
 
@@ -761,20 +717,22 @@ class Mapper:
         """
         level = 0
         if e is None:
-            elems = self.processor.get_stack(level, interval=True)
+            elems = self.prc.mapping.get_stack(level, interval=True)
         else:
             elems = e.content
 
         cnt = 0
         addr = None
         for i, e in enumerate(elems):
+            if e.level != 0:
+                continue
             cnt = cnt + 1 if e.stance.pos + e.stance.rep[:-1] == addr else 0
             addr = e.stance.pos + e.stance.rep[:-1]
 
-            rev = bool(self.processor.grules.revs[level][0][e.num])
+            rev = bool(self.prc.grules.revs[level][0][e.num])
             addrs = [e for e in elems if e.stance.pos + e.stance.rep[:-1] == addr]
 
-            perms = self.processor.srules.tperms[e.num]
+            perms = self.prc.srules.tperms[e.num]
             priority = cnt if not rev else len(addrs) - 1 - cnt
             perm = perms[min(e.stance.depth, len(perms) - 1)][priority]
 
@@ -800,7 +758,7 @@ class Mapper:
         if isinstance(target, Element):
             elems = target.content
             level, depth = target.content[0].level, target.content[0].stance.depth
-            dich = self.processor.masker.get_dichs(Stance(depth=depth), level)
+            dich = self.prc.masker.get_dichs(Stance(depth=depth), level)
         else:
             elems = None
             dich = target
@@ -808,7 +766,7 @@ class Mapper:
 
         res = True
         stance = Stance(pos=dich.masks[dich.pointer or 0].num_key, depth=depth)
-        dichs = self.processor.masker.get_dichs(stance, level, downstream=True)
+        dichs = self.prc.masker.get_dichs(stance, level, downstream=True)
         invert = bool(dich.pointer or 0)
 
         for cdich in dichs:
@@ -836,14 +794,14 @@ class Mapper:
             if (term_only and p != len(stance.pos) - 1) or (d is not None and p < d):
                 continue
             part_stance = stance.copy(p)
-            dich = self.processor.masker.get_dichs(part_stance, e.level)
+            dich = self.prc.masker.get_dichs(part_stance, e.level)
             cur_mask = pos if not dich.rev else 1 - pos
 
             comp = dich.masks[cur_mask].compare(e, dich.split, force_mov)
             if comp:
                 e.stance = stance
                 dich.pointer = cur_mask
-                self.processor.masker.set_dichotomy(dich, comp, e.level)
+                self.prc.masker.set_dichotomy(dich, comp, e.level)
             else:
                 return False
         return True
@@ -852,8 +810,8 @@ class Mapper:
         """Produces the stance for the given element by deciding the dichotomies."""
         if e.stance is None:
             e.stance = Stance()
-        for d in range(0, sum(self.processor.grules.struct[e.level])):
-            dich = self.processor.masker.get_dichs(e.stance, e.level)
+        for d in range(0, sum(self.prc.grules.struct[e.level])):
+            dich = self.prc.masker.get_dichs(e.stance, e.level)
             if not self.decide_dichotomy(e, dich):
                 return False
         return True
@@ -876,8 +834,8 @@ class Mapper:
             dich.masks[1].compare(e, dich.split),
         ]
         # Skip to the second mask if the breaker count is positive
-        if self.processor.cur_breaks[e.level][e.stance.depth] > 0:
-            self.processor.cur_breaks[e.level][e.stance.depth] -= 1
+        if self.prc.mapping.cur_breaks[e.level][e.stance.depth] > 0:
+            self.prc.mapping.cur_breaks[e.level][e.stance.depth] -= 1
             if not comps[1]:
                 return False
             # Breaking is permanent, so fitting to the first mask is now forbidden
@@ -919,7 +877,7 @@ class Mapper:
         old_mask = f"{dich.masks[fit]}"
 
         # Prepare the decision
-        self.processor.masker.set_dichotomy(dich, comps[fit], e.level)
+        self.prc.masker.set_dichotomy(dich, comps[fit], e.level)
         pos = fit if not dich.rev else 1 - fit
         rep = dich.masks[fit].rep
 
@@ -944,10 +902,10 @@ class Mapper:
 
         if not self._close_dichotomies(e):
             logger.warning("Failed to close the dichotomies")
-            raise 
+            raise
             return False
 
-        if e.level == 0 and not self._validate_mapping(e):
+        if not self._validate_mapping(e):
             logger.warning("Failed to validate the mapping")
             return False
 
@@ -959,8 +917,8 @@ class Interpreter:
     interpretations to the functions of its nodes with the received arguments.
     """
 
-    def __init__(self, processor: Processor) -> None:
-        self.processor = processor
+    def __init__(self, prc: Processor) -> None:
+        self.prc = prc
         return
 
     def apply(self, elems: list[Element], tree: Tree) -> None:
@@ -987,7 +945,7 @@ class Interpreter:
                 self.apply(e.content, base_node.complexes[-1])
 
             if e.level > 0:
-                sep = self.processor.alphabet.separators[e.level - 1]
+                sep = self.prc.alphabet.separators[e.level - 1]
             else:
                 sep = ""
             tree.set_element(e, sep, set_all=True)
@@ -998,7 +956,7 @@ class Interpreter:
         """Determines the composition type of the element recorded in the tree."""
         # Try different types one by one
         # Types specific for the depth level go first, general types last
-        ctypes = self.processor.dialect.ctypes[tree.level]
+        ctypes = self.prc.dialect.ctypes[tree.level]
         if not ctypes:
             ctypes = []
         elif str(tree.depth) in ctypes:
@@ -1058,7 +1016,7 @@ class Interpreter:
             if not node.content:
                 continue
             e = node.content[0]
-            feature = self.processor.dialect.get_feature(
+            feature = self.prc.dialect.get_feature(
                 e.header.content.base.index,
                 e.header.content.base.aclass,
                 node.stance,
@@ -1084,9 +1042,9 @@ class Interpreter:
         into the tree.
         """
         if tree is None:
-            tree = self.processor.trees[-1][0]
+            tree = self.prc.trees[-1][0]
         elif isinstance(tree, int):
-            tree = self.processor.trees[tree][0]
+            tree = self.prc.trees[tree][0]
 
         logger.info(f"{prefix} {tree.ctype} '{tree.working_string}'")
         nodes = tree.getinterpretable_nodes()
