@@ -186,6 +186,7 @@ class Feature:
     def __repr__(self) -> str:
         return f"{self.function_name}: {self.argument_name}"
 
+
 @dataclass
 class Stance:
     """A representation of the mapping between the element and the mask."""
@@ -240,19 +241,17 @@ class Token:
     def __repr__(self) -> str:
         return self.content or "Empty symbol"
 
-    def is_pusher(self, lv: int = 0) -> bool:
-        """Checks if the token acts as a pusher at the given level."""
+    def is_pusher(self) -> bool:
+        """Checks if the token acts as a pusher."""
         base = self.base.aclass == "Embedder"
-        level = self.base.level == lv
         quality = self.base.quality in (None, 0)
-        return min(base, level, quality)
+        return min(base, quality)
 
-    def is_popper(self, lv: int = 0) -> bool:
-        """Checks if the token acts as a popper at the given level."""
+    def is_popper(self) -> bool:
+        """Checks if the token acts as a popper."""
         base = self.base.aclass == "Embedder"
-        level = self.base.level == lv
         quality = self.base.quality in (None, 1)
-        return min(base, level, quality)
+        return min(base, quality)
 
     def is_wild(self, lv: int = 0) -> bool:
         return False

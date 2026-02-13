@@ -16,7 +16,7 @@ class Mapping:
         self.cur_bdr = [0 for lvl in levels]
         self.elems = [[] for lvl in levels]
         
-    def get_interval(self, lvl: int) -> list:
+    def get_interval(self, lvl: int) -> list[Element]:
         """Returns the interval on the given level consisting of elements
         that are yet to be wrapped into an element of the higher level.
         """
@@ -30,7 +30,7 @@ class Mapping:
         self.cur_bdr[lvl] = len(self.elems[lvl])
         return
 
-    def get_stack(self, lvl: int = -1, interval: bool = False) -> list:
+    def get_stack(self, lvl: int = -1, interval: bool = False) -> list[Element]:
         """Returns the list of elements at the given level
         to which the next element should be appended.
         """
@@ -40,7 +40,7 @@ class Mapping:
         return stack
 
     def enumerate_elems(
-        self, num_key: list[int], elems: list, d: int
+        self, num_key: list[int], elems: list[Element], d: int
     ) -> Dict[str, list[int]]:
         """Returns a list of indices of the given list of elements that conform
         to the given key, arranging them into a dict of lists where the keys are
