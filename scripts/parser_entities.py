@@ -664,7 +664,7 @@ class Node:
         if not self.content or not self.terminal:
             self.content.append(e)
         else:
-            raise Exception(f"Tried to rewrite the content of terminal node {self}")
+            raise AttributeError(f"Tried to rewrite the content of terminal node {self}")
 
     @property
     def stance(self) -> Stance:

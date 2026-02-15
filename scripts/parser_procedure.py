@@ -16,6 +16,12 @@ logger.addHandler(logging.NullHandler())
 logging.basicConfig(format="[%(levelname)s] %(message)s")
 
 
+class ParsingFailure(Exception):
+    def __init__(self, message: str) -> None:
+        super().__init__(f"{message}")
+        return
+
+
 class Processor:
     """Orchestrates all language operations."""
 
@@ -30,9 +36,7 @@ class Processor:
         return
 
     def _load_params(self) -> None:
-        """Creates the components and loads the alphabet,
-        general and special rules from the given path.
-        """
+        """Creates the components and loads the alphabet and the rules."""
         # Loading parameters
         loader = Loader(self.path)
         self.alphabet = loader.load_alphabet()
@@ -50,7 +54,7 @@ class Processor:
         """Parses the input string and applies the parsing to the trees."""
         logger.level = logging.DEBUG if verbose else logging.INFO
         logger.info(f"Parsing {instr}")
-        # Emptying the parameters
+        # Resetting the parameters
         self.mapping = Mapping(self.levels)
         self.trees = [[] for lvl in self.levels]
         self.streamer.instr = instr
@@ -58,11 +62,11 @@ class Processor:
         # Parsing the string
         try:
             self.streamer.feed()
-        except Exception:
-           logger.info(f"Failed to parse {instr}")
-           return False
+        except ParsingFailure:
+            logger.info(f"Failed to parse {instr}")
+            return False
         logger.info(f"Successfully parsed {instr} as {self.mapping.elems[-1]}")
-        # Applying the obtained parsing to the trees
+        # Applying the obtained mapping to the trees
         for lvl in self.levels:
             if lvl < len(self.levels) - 1:
                 elems = [e.preheader.content for e in self.mapping.elems[lvl + 1]]
@@ -260,10 +264,17 @@ class Streamer:
         and tokenization of the input string.
         """
         t: Token | None = None
-        for i, ch in enumerate(self.instr):
+        linstr = [ch for ch in self.instr]
+        for i, ch in enumerate(linstr):
             # Wrapping the char into a symbol if it is alphabetic
-            if ch in self.prc.alphabet.substitutions:
-                ch = self.prc.alphabet.substitutions[ch]
+            subs = self.prc.alphabet.substitutions
+            if ch in subs:
+                sub = subs[ch]
+                # If the replacement consists of more than one symbol,
+                # add the additional symbols to the string
+                for j, s in enumerate(sub[1:]):
+                    linstr.insert(i + j + 1, s)
+                ch = sub[0]
             if ch not in self.prc.alphabet.lookup:
                 continue
             params = self.prc.alphabet.lookup[ch]
@@ -291,22 +302,23 @@ class Streamer:
         # Exhausting the stream
         while True:
             t = next(stream, None)
-            # When the last token is reached, separation is enforced
+            # When the last token is reached, separation and popping is enforced
             if t is None:
-                self.separate(full=True)
+                self.pop(max(self.prc.levels) - 1, deep=True)
+                self.separate(max(self.prc.levels), deep=True)
                 return True
             self.t = t
-            cur_dpt = self.prc.mapping.cur_dpt[t.base.level]
+            lvl = t.base.level
             if t.base.asubcat == "Guiding":
                 # Separating intervals of elements
                 if t.base.aclass == "Separator":
-                    self.separate()
+                    self.separate(lvl)
                 # Decreasing depth of complex embedding
-                elif t.is_popper() and cur_dpt > 0:
-                    self.pop()
+                elif t.is_popper() and self.prc.mapping.cur_dpt[t.base.level] > 0:
+                    self.pop(lvl)
                 # Increasing depth of complex embedding
                 elif t.is_pusher():
-                    self.push()
+                    self.push(lvl)
             # Parsing content tokens while accounting for early & late breakers
             if t.base.asubcat == "Content" or t.base.aclass == "Wildcard":
                 self.account_breaker(late=False)
@@ -324,33 +336,38 @@ class Streamer:
         stack.append(self.e)
         return
 
-    def separate(self, full: bool = False) -> None:
+    def separate(self, lvl: int, deep: bool = False) -> None:
         """Wraps the interval of elements limited by the current border position
         into an element of the higher level and adds it to corresponding stack.
         """
-        # If the current depth of embedding is above zero on the same level,
-        # pop until it reaches zero
-        for lvl in self.prc.levels:
-            if lvl == self.e.level or full:
-                self.pop(full=True)
-                interval = self.prc.mapping.get_interval(lvl)
-                if interval and lvl < len(self.prc.levels) - 1:
-                    self.e = Element(interval, level=lvl + 1)
+        for level in self.prc.levels:
+            if level == lvl or deep:
+                # If the current depth of embedding is above zero on the same level,
+                # pop until it reaches zero
+                interval = self.prc.mapping.get_interval(level)
+                if interval and level < len(self.prc.levels) - 1:
+                    self.e = Element(interval, level=level + 1)
                     self.add()
-                    self.prc.masker.construct(lvl)
-                    self.prc.mapping.update_interval(lvl)
+                    self.prc.masker.construct(level)
+                    self.prc.mapping.update_interval(level)
+                if level > 0:
+                    self.pop(lvl, deep=True)
         return
 
-    def pop(self, full: bool = False) -> None:
+    def pop(self, lvl: int, deep: bool = False) -> None:
         """Decreases the current depth of complex embedding, wraps the current
         stack interval into an element of the same level and parses it.
         """
-        lvl = self.t.base.level
+        if lvl > 0:
+            self.separate(lvl - 1, deep=True)
         while self.prc.mapping.cur_dpt[lvl] > 0:
             # Popping only operates on the latest item in the element buffer,
             # which must also be a list of elements
             content = self.prc.mapping.elems[lvl][-1]
             if not isinstance(content, list):
+                return
+            elif len(content) == 0:
+                del self.prc.mapping.elems[lvl][-1]
                 return
             e = Element(content, level=lvl)
             self.e = e
@@ -360,27 +377,24 @@ class Streamer:
             self.prc.mapping.elems[lvl][-1] = e
             self.prc.mapping.cur_dpt[lvl] -= 1
             self.parse()
-            logger.debug(
-                f"-> Depth at level {lvl} decreased to {self.prc.mapping.cur_dpt[lvl]}"
-            )
-            if not full:
+            dpt = self.prc.mapping.cur_dpt[lvl]
+            logger.debug(f"-> Depth at level {lvl} decreased to {dpt}")
+            if not deep:
                 break
         return
 
-    def push(self) -> None:
+    def push(self, lvl: int) -> None:
         """Decreases the current depth of complex embedding.
         Performs separation on the previous level if necessary.
         """
-        lvl = self.t.base.level
         if lvl > 0:
             self.separate(lvl - 1)
         self.prc.mapping.elems[lvl].append([])
         self.prc.mapping.cur_dpt[lvl] += 1
         if self.prc.mapping.cur_dpt[lvl] >= len(self.prc.mapping.cur_breaks[lvl]):
             self.prc.mapping.cur_breaks[lvl].append(0)
-        logger.debug(
-            f"-> Depth at level {lvl} increased to {self.prc.mapping.cur_dpt[lvl]}"
-        )
+        dpt = self.prc.mapping.cur_dpt[lvl]
+        logger.debug(f"-> Depth at level {lvl} increased to {dpt}")
         return
 
     def account_breaker(self, late: bool) -> None:
@@ -528,7 +542,7 @@ class Masker:
         if out:
             return out
         else:
-            raise Exception(f"Could not find dichotomy by stance {stance}")
+            raise ValueError(f"Could not find dichotomy by stance {stance}")
 
     def set_dichotomy(self, dich: Dichotomy, comp: Tuple[int, int], level: int) -> None:
         """Records the given tuple of pos and rep to the pointed mask.
@@ -733,7 +747,6 @@ class Mapper:
         if level != 0:
             return True
         elems = self.prc.mapping.get_stack(level, interval=True)
-        logger.debug(f"Filling for {dich} at {elems}")
 
         left_nk, right_nk = dich.masks[0].num_key, dich.masks[1].num_key
         left_matches = self.prc.mapping.enumerate_elems(left_nk, elems, dich.d)
@@ -775,7 +788,9 @@ class Mapper:
                 if isinstance(self.e.content, list):
                     if self.e.content[0].level != self.e.level:
                         self.e.content.insert(insert_index + slot, neut)
-                self.prc.mapping.get_stack(level).insert(insert_index + slot, neut)
+                bdr = self.prc.mapping.cur_bdr[level]
+                stack = self.prc.mapping.get_stack(level)
+                stack.insert(bdr + insert_index + slot, neut)
 
         return True
 
@@ -785,7 +800,6 @@ class Mapper:
         """
         level = 0
         elems = self.e.content
-        logger.debug(f"Validating {elems}")
 
         cnt = 0
         addr = None
@@ -879,7 +893,7 @@ class Mapper:
         for d in range(0, sum(self.prc.grules.struct[e.level])):
             dich = self.prc.masker.get_dichs(e.stance, e.level)
             if not self._decide_dichotomy(dich):
-                raise Exception(f"Failed to parse {e}")
+                raise ParsingFailure(f"Failed to parse {e}")
         return True
 
     def close(self, e: Element) -> bool:
@@ -891,12 +905,10 @@ class Mapper:
             return True
 
         if not self._close_dichotomies():
-            logger.warning("Failed to close the dichotomies")
-            raise Exception("Parsing failed")
+            raise ParsingFailure("Failed to close the dichotomies")
 
         if not self._validate_mapping():
-            logger.warning("Failed to validate the mapping")
-            raise Exception("Parsing failed")
+            raise ParsingFailure("Failed to validate the mapping")
 
         return True
 
@@ -986,7 +998,7 @@ class Interpreter:
         if fits:
             tree.ctype = fits[0]
         else:
-            logger.warning("Could not determine the composition type")
+            logger.warning(f"Illegal composition type at level {tree.level}")
 
         # Do the same for all embedded trees
         for node in [n for n in tree.all_nodes if n.complexes]:
