@@ -85,73 +85,6 @@ class Processor:
         """Produces the list of stances of the elements of the given level."""
         return [e.stance for e in self.mapping.elems[lvl]]
 
-    def draw_tree(
-        self,
-        tree: Tree | int | None = None,
-        features: bool = False,
-        all_nodes: bool = False,
-    ) -> None:
-        """Prints out the given dichotomic tree with mapped elements."""
-        if tree is None:
-            tree = self.trees[0][-1]
-        elif isinstance(tree, int):
-            tree = self.trees[tree][-1]
-
-        st = str(tree)
-
-        if tree.stance:
-            st += f" at {tree.stance}"
-        st += "\n"
-        st += tree.draw(features=features, all_nodes=all_nodes)
-
-        print(st)
-
-        return
-
-    def gloss(
-        self,
-        tree: Tree | int | None = None,
-        to_gloss: str | list[Node] | None = None,
-    ) -> None:
-        """Iterates the terminal nodes of the tree and replaces the representations
-        of their contents with the gloss strings defined by their features.
-        If to_gloss is a string, processes it first.
-        If to_gloss is a list of nodes, glosses them.
-        """
-        if tree is None:
-            tree = self.trees[-1][-1]
-        elif isinstance(tree, int):
-            tree = self.trees[-1][tree]
-
-        if to_gloss is None:
-            items = tree.get_interpretable_nodes(complexes=True)
-        elif isinstance(to_gloss, str):
-            self.process(to_gloss)
-            self.gloss(self.parser.trees[-1])
-        elif isinstance(to_gloss, list):
-            items = to_gloss
-        else:
-            raise ValueError(f"Invalid input to gloss: {to_gloss}")
-
-        glosses, current_glossless = [], ""
-        for item in items:
-            if isinstance(item, list):
-                if current_glossless:
-                    glosses.append(f"{current_glossless}-")
-                    current_glossless = ""
-                glosses.append(f"[{self.gloss(item)}]")
-            elif item.feature.argument_gloss:
-                if current_glossless:
-                    glosses.append(f"{current_glossless}-")
-                    current_glossless = ""
-                glosses.append(f"{item.feature.argument_gloss}-")
-            else:
-                current_glossless += "".join(str(e) for e in item.content)
-
-        gloss = "".join(glosses).strip("-")
-
-        return gloss
-
 
 class Loader:
     """Loads the alphabet, special and general rules to be transformed into parameters
@@ -1043,9 +976,9 @@ class Interpreter:
         into the tree.
         """
         if tree is None:
-            tree = self.prc.trees[-1][0]
+            tree = self.prc.trees[0][0]
         elif isinstance(tree, int):
-            tree = self.prc.trees[tree][0]
+            tree = self.prc.trees[0][tree]
 
         logger.info(f"{prefix} {tree.ctype} '{tree.working_string}'")
         nodes = tree.get_interpretable_nodes()
@@ -1077,3 +1010,71 @@ class Interpreter:
             for c in node.complexes:
                 self.describe(c, prefix=prefix + "·")
         return
+
+    def draw_tree(
+        self,
+        tree: Tree | int | None = None,
+        features: bool = False,
+        all_nodes: bool = False,
+    ) -> None:
+        """Prints out the given dichotomic tree with mapped elements."""
+        if tree is None:
+            tree = self.prc.trees[0][-1]
+        elif isinstance(tree, int):
+            tree = self.prc.trees[tree][-1]
+
+        st = str(tree)
+
+        if tree.stance:
+            st += f" at {tree.stance}"
+        st += "\n"
+        st += tree.draw(features=features, all_nodes=all_nodes)
+
+        print(st)
+
+        return
+
+    def gloss(
+        self,
+        tree: Tree | int | None = None,
+        to_gloss: str | list[Node] | None = None,
+    ) -> None:
+        """Iterates the terminal nodes of the tree and replaces the representations
+        of their contents with the gloss strings defined by their features.
+        If to_gloss is a string, processes it first.
+        If to_gloss is a list of nodes, glosses them.
+        """
+        if tree is None:
+            tree = self.prc.trees[0][-1]
+        elif isinstance(tree, int):
+            tree = self.prc.trees[0][tree]
+
+        if to_gloss is None:
+            logger.debug(f"{tree}")
+            items = tree.get_interpretable_nodes(complexes=True)
+        elif isinstance(to_gloss, str):
+            self.prc.process(to_gloss)
+            self.gloss(self.prc.trees[0][-1])
+        elif isinstance(to_gloss, list):
+            items = to_gloss
+        else:
+            raise ValueError(f"Invalid input to gloss: {to_gloss}")
+
+        glosses, current_glossless = [], ""
+        for item in items:
+            if isinstance(item, list):
+                if current_glossless:
+                    glosses.append(f"{current_glossless}-")
+                    current_glossless = ""
+                glosses.append(f"[{self.gloss(to_gloss=item)}]")
+            elif item.feature.argument_gloss:
+                if current_glossless:
+                    glosses.append(f"{current_glossless}-")
+                    current_glossless = ""
+                glosses.append(f"{item.feature.argument_gloss}-")
+            else:
+                current_glossless += "".join(str(e) for e in item.content)
+
+        gloss = "".join(glosses).strip("-")
+
+        return gloss
