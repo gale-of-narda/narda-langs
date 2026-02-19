@@ -1,6 +1,6 @@
 from math import log
 
-from typing import Dict, Tuple, List, Optional
+from typing import Dict, Tuple, Optional
 
 from scripts.parser_dataclasses import Stance, Token, Feature
 
@@ -15,7 +15,7 @@ class Mapping:
         self.cur_dpt = [0 for lvl in levels]
         self.cur_bdr = [0 for lvl in levels]
         self.elems = [[] for lvl in levels]
-        
+
     def get_interval(self, lvl: int) -> list[Element]:
         """Returns the interval on the given level consisting of elements
         that are yet to be wrapped into an element of the higher level.
@@ -56,6 +56,7 @@ class Mapping:
                     matches[slot].append(i)
         return matches
 
+
 class Dichotomy:
     """A combination of the mask pair, parameters guiding the choice between them,
     and the pointer that records the last choice made.
@@ -80,7 +81,7 @@ class Dichotomy:
             return "(empty dichotomy)"
 
     @property
-    def masks(self) -> List[Mask]:
+    def masks(self) -> list[Mask]:
         """Returns the masks in the appropriate order."""
         try:
             return [self.left, self.right] if not self.rev else [self.right, self.left]
@@ -133,7 +134,7 @@ class Dichotomy:
         return "".join(key[-1]) if key else ""
 
     @property
-    def num_key(self) -> List[int]:
+    def num_key(self) -> list[int]:
         """Represents the dichotomy key as a list of integers."""
         num_key = [int(k) for k in self.key]
         return num_key
@@ -195,7 +196,7 @@ class Mask:
         return key
 
     @property
-    def num_key(self) -> List[int]:
+    def num_key(self) -> list[int]:
         """Represents the dichotomy key as a list of integers."""
         num_key = [int(k) for k in self.key]
         return num_key
@@ -205,7 +206,7 @@ class Mask:
         """A mask is active if its current position is not None."""
         return self.pos is not None
 
-    def _decode(self, premask: str) -> Tuple[List[List[str]], List[bool]]:
+    def _decode(self, premask: str) -> Tuple[list[list[str]], list[bool]]:
         """Decodes the terminal permissions defined in the general rules
         to transform them into masks.
         """
@@ -291,8 +292,9 @@ class Mask:
 
     def match(self, e: Element, pos: int = 0, ignore_pos: bool = False) -> bool:
         """Checks if the given string fits the element at the given position."""
+        head = e.preheader.get_matching_head(e.stance.depth)
+        aclass, lit = head.content.base.aclass, head.content.lit
         # If freeze is True, fitting to the mask is forbidden
-        aclass, lit = e.header.content.base.aclass, e.header.content.lit
         if self.freeze:
             return False
         if aclass == "Wildcard":
@@ -322,38 +324,28 @@ class Element:
 
     def __init__(
         self,
-        content: Token | List[Token],
+        content: Token | list[Token],
         stance: Optional[Stance] = None,
         level: int = 0,
     ) -> None:
-        self.content: Token | List[Token] | Element | List[Element] = content
+        self.content: Token | list[Token] | Element | list[Element] = content
         self.stance: Stance | None = stance
         self.level: int = level
-        self.molar: bool = not isinstance(self.content, List)
-        self.head: Element = self
+        self.molar: bool = not isinstance(self.content, list)
+        self.heads: list[Element] = []
         return
 
     def __repr__(self) -> str:
-        return self._represent()
-
-    def _represent(self, top: bool = True) -> str:
         if self.molar:
             return str(self.content)
         else:
-            if top:
-                out = ""
-                for c in self.content:
-                    out += c._represent(top=False)
-                    if c is self.head:
-                        out += "̲"
-                return out
-            else:
-                return self.head._represent(top=False)
-
-    @property
-    def view(self):
-        """String representation of the tokens in the element's content."""
-        return "".join([str(g) for g in self.content])
+            out = ""
+            for c in self.content:
+                sep = "·" if len(out) > 0 and c.level > 0 else ""
+                out += f"{sep}{repr(c)}"
+                if c.level == 0 and c is self.head:
+                    out += "̲"
+            return out
 
     @property
     def num(self) -> int:
@@ -365,6 +357,16 @@ class Element:
     def order(self) -> int:
         """The order of the element is that of its head's content token."""
         return self.head.content.order
+
+    @property
+    def head(self) -> Element:
+        """The main head of the element, which is the first one or the element
+        itself if no heads are set.
+        """
+        if not self.heads:
+            return self
+        else:
+            return self.heads[0]
 
     @property
     def header(self) -> Element:
@@ -383,35 +385,49 @@ class Element:
         return source
 
     def set_head(self, nums: int | list[int], fallback: bool = False) -> bool:
-        """Finds the content element with the given binary number
-        and sets it as the head.
+        """Finds the content elements with the given binary number
+        and sets them as heads.
         """
         # Simple elements always have themselves as heads
         if self.molar:
             return False
+        fit = False
         # Try each permitted stance one by one until the first fitting element
         for num in nums if isinstance(nums, list) else [nums]:
             for e in self.content:
                 if int(e.stance.key or "0", 2) == num:
-                    self.head = e
-                    return True
+                    self.heads.append(e)
+                    fit = True
         # If no elements are found, set the first one
-        if fallback:
-            self.head = self.content[0]
-            return True
+        if not fit and fallback:
+            self.heads.append(self.content[0])
         else:
             return False
+        return True
+
+    def get_matching_head(self, depth: int | None = None) -> Element:
+        """Retrieves the n-th head of the element, where n is the difference
+        between the element's current stance depth and the given depth.
+        Used for matching elements to masks.
+
+        If no depth is given, no stance exists, or no heads are set,
+        returns the main head.
+        """
+        if depth is None or self.stance is None or not self.heads:
+            return self.head
+        else:
+            return self.heads[self.stance.depth - depth]
 
 
 class Tree:
     """A dichotomic tree defined by the given structure."""
 
-    def __init__(self, struct: List[int], level: int = 0, depth: int = 0) -> None:
-        self.struct: List[int] = struct
+    def __init__(self, struct: list[int], level: int = 0, depth: int = 0) -> None:
+        self.struct: list[int] = struct
         self.level: int = level
         self._depth: int = depth
         self.root: Node = Node()
-        self.nodes: List[Node] = [self.root]
+        self.nodes: list[Node] = [self.root]
         self.perms = None
         self.ctype = None
         self.stance = None
@@ -467,7 +483,7 @@ class Tree:
         """Creates a structural copy of the tree and returns either that copy
         or its node of the given number.
         """
-        subtree = Tree(self.struct)
+        subtree = Tree(self.struct, self.level)
         return subtree if target is None else subtree.nodes[target]
 
     @property
@@ -490,14 +506,14 @@ class Tree:
         return
 
     @property
-    def all_nodes(self) -> List[Node]:
+    def all_nodes(self) -> list[Node]:
         """A list of all nodes present anywhere in the tree, including compounds
         and heads of complexes.
         """
-        nodes: List[Node] = self.root.downstream
+        nodes: list[Node] = self.root.downstream
         return sorted(nodes, key=lambda node: node.num)
 
-    def get_interpretable_nodes(self, complexes: bool = False) -> List[Node]:
+    def get_interpretable_nodes(self, complexes: bool = False) -> list[Node]:
         """Returns terminal nodes with content. If complexes is True,
         recursively includes lists of those for the embedded trees.
         """
@@ -590,7 +606,7 @@ class Tree:
 
     def get_nodes(
         self, stance: Optional[Stance] = None, upstream: bool = False
-    ) -> List[Node] | Node:
+    ) -> list[Node] | Node:
         """Returns the node addressed by the given stance.
         If upstream = True, also returns its ancestors.
         """
@@ -644,10 +660,10 @@ class Node:
         self.terminal: bool = False
         self._stance: Stance = Stance()
         self.parent: Optional[Node] = None
-        self.children: List[Node] = []
-        self.compounds: List[Node] = []
-        self.complexes: List[Tree] = []
-        self.content: List[Element] = []
+        self.children: list[Node] = []
+        self.compounds: list[Node] = []
+        self.complexes: list[Tree] = []
+        self.content: list[Element] = []
         self.feature: Optional[Feature] = None
         self.sep: str = str()
         return
@@ -664,7 +680,9 @@ class Node:
         if not self.content or not self.terminal:
             self.content.append(e)
         else:
-            raise AttributeError(f"Tried to rewrite the content of terminal node {self}")
+            raise AttributeError(
+                f"Tried to rewrite the content of terminal node {self}"
+            )
 
     @property
     def stance(self) -> Stance:
@@ -674,12 +692,12 @@ class Node:
         return self._stance
 
     @property
-    def downstream(self) -> List[Node]:
+    def downstream(self) -> list[Node]:
         """A list that includes the node itself, its compounds,
         the heads of its complexes, and the same objects for every child.
         """
-        nodes: List[Node] = [self] + self.compounds
-        children: List[Node] = []
+        nodes: list[Node] = [self] + self.compounds
+        children: list[Node] = []
         for node in nodes:
             for ch in node.children:
                 children += ch.downstream

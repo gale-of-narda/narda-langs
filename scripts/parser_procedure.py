@@ -591,7 +591,7 @@ class Mapper:
 
         new_mask = f"{dich.masks[fit]}"
         num_strings = ["1st", "2nd"]
-        content = f"-> Fitting {self.e.head.content} to the {num_strings[fit]}"
+        content = f"-> Fitting {repr(self.e.head)} to the {num_strings[fit]}"
         if dich.split:
             logger.debug(f"{content} mask {new_mask}")
         else:
@@ -876,6 +876,7 @@ class Interpreter:
             if not e.molar and e.content[0].level == e.level:
                 base_node = tree.get_nodes(e.stance)
                 tree.embed_complex(base_node)
+                logger.debug(f"Embedded a complex at {base_node}")
                 self.apply(e.content, base_node.complexes[-1])
 
             if e.level > 0:
