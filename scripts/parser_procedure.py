@@ -247,10 +247,10 @@ class Streamer:
                 if t.base.aclass == "Separator":
                     self.separate(lvl)
                 # Decreasing depth of complex embedding
-                elif t.is_popper() and self.prc.mapping.cur_dpt[t.base.level] > 0:
+                elif t.is_popper(lvl) and self.prc.mapping.cur_dpt[t.base.level] > 0:
                     self.pop(lvl)
                 # Increasing depth of complex embedding
-                elif t.is_pusher():
+                elif t.is_pusher(lvl):
                     self.push(lvl)
             # Parsing content tokens while accounting for early & late breakers
             if t.base.asubcat == "Content" or t.base.aclass == "Wildcard":

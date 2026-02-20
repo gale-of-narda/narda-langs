@@ -241,17 +241,19 @@ class Token:
     def __repr__(self) -> str:
         return self.content or "Empty symbol"
 
-    def is_pusher(self) -> bool:
+    def is_pusher(self, lvl: int) -> bool:
         """Checks if the token acts as a pusher."""
         base = self.base.aclass == "Embedder"
+        level = self.base.level == lvl
         quality = self.base.quality in (None, 0)
-        return min(base, quality)
+        return min(base, level, quality)
 
-    def is_popper(self) -> bool:
+    def is_popper(self, lvl: int) -> bool:
         """Checks if the token acts as a popper."""
         base = self.base.aclass == "Embedder"
+        level = self.base.level == lvl
         quality = self.base.quality in (None, 1)
-        return min(base, quality)
+        return min(base, level, quality)
 
     def is_wild(self, lv: int = 0) -> bool:
         return False
