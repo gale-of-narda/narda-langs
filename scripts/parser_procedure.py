@@ -50,7 +50,7 @@ class Processor:
         self.interpreter = Interpreter(self)
         self.streamer = Streamer(self)
 
-    def process(self, instr: str, verbose: bool = False) -> None:
+    def process(self, instr: str, verbose: bool = False) -> bool:
         """Parses the input string and applies the parsing to the trees."""
         logger.level = logging.DEBUG if verbose else logging.INFO
         logger.info(f"Parsing {instr}")
