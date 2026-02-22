@@ -1,4 +1,4 @@
-packages = ["typer", "rich", "csv", "json", "logging", "typing", "pathlib", "math", "dataclasses"]
+packages = ["typer", "rich", "csv", "logging", "typing", "pathlib", "dataclasses"]
 
 [[fetch]]
 from = "."
