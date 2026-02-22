@@ -7,12 +7,12 @@ from rich.logging import RichHandler
 from scripts.parser_procedure import Processor
 
 
-class ReallyExit(Exception):
+class ExitException(Exception):
     pass
 
 
-app = typer.Typer(add_completion=False)
-console = Console()
+cli = typer.Typer(add_completion=False)
+console = Console(force_terminal=True)
 processor: Processor = None
 
 logging.basicConfig(
@@ -23,56 +23,54 @@ logging.basicConfig(
 )
 
 
-@app.command()
+@cli.command()
 def process(text: str, verbose: bool = typer.Option(False, "--verbose", "-v")):
     res = processor.process(text, verbose=verbose)
     success = "[bold green]Successfully parsed[/bold green]"
-    fail = "[bold red]Parsing failed for:[/bold red]"
+    fail = "[bold red]Parsing failed for[/bold red]"
     res_string = success if res else fail
-    console.print(f"{res_string} {text}")
+    console.print(f"{res_string} '{text}'")
     return
 
 
-@app.command()
+@cli.command()
 def describe(verbose: bool = typer.Option(False, "--verbose", "-v")):
     processor.interpreter.describe(verbose=verbose)
     return
 
 
-@app.command()
+@cli.command()
 def gloss():
     gloss_text = processor.interpreter.gloss()
     console.print(gloss_text)
     return
 
 
-@app.command()
+@cli.command()
 def exit():
-    raise ReallyExit
+    raise ExitException
 
 
 def main(path: str = ""):
     global processor
+    try:
+        processor = Processor(path=path)
+    except Exception as e:
+        console.print(f"[bold red]Error on load:[/]\n{e}")
+        return
 
-    with console.status("[bold green]Initializing..."):
-        try:
-            processor = Processor(path=path)
-        except Exception as e:
-            console.print(f"[bold red]Error loading config:[/]\n{e}")
-            return
-
-    console.rule("[bold cyan]Ready")
+    console.rule("[bold green]Ready")
 
     while True:
         try:
-            command = console.input("\n[bold cyan]>[/] ")
+            command = console.input("\n[bold blue]>[/] ")
             if not command.strip():
                 continue
-            app(command.split(" "), standalone_mode=False)
-        except ReallyExit:
+            cli(command.split(), standalone_mode=False)
+        except ExitException:
             break
         except Exception as e:
-            console.print(f"[red]Error:[/red] {e}")
+            console.print(f"[red]Unexpected error:[/red] {e}")
 
 
 if __name__ == "__main__":
