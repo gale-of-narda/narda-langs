@@ -63,7 +63,8 @@ def main(path: str = ""):
 
     while True:
         try:
-            command = console.input("\n[bold blue]>[/] ")
+            console.print("\n[bold blue]>[/] ", end="")
+            command = input()
             if not command.strip():
                 continue
             cli(command.split(), standalone_mode=False)
