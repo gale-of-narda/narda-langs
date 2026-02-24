@@ -12,42 +12,6 @@ class ExitException(Exception):
     pass
 
 
-def web_input(prompt_text):
-    console.print(prompt_text, end="")
-
-    result = []
-    while True:
-        char = sys.stdin.read(1)
-
-        if not char:
-            continue
-
-        if char in ("\n", "\r"):
-            sys.stdout.write("\r\n")
-            sys.stdout.flush()
-            break
-
-        elif char in ("\b", "\x7f"):
-            if result:
-                result.pop()
-                sys.stdout.write("\b \b")
-                sys.stdout.flush()
-
-        elif char == "\x1b":
-            while True:
-                next_char = sys.stdin.read(1)
-                if next_char.isalpha() or next_char == "~":
-                    break
-            continue
-
-        elif char.isprintable():
-            result.append(char)
-            sys.stdout.write(char)
-            sys.stdout.flush()
-
-    return "".join(result)
-
-
 cli = typer.Typer(add_completion=False)
 console = Console(force_terminal=True)
 processor: Processor = None
@@ -100,7 +64,7 @@ def main(path: str = ""):
 
     while True:
         try:
-            command = web_input("\n[bold blue]>[/] ")
+            command = console.input("\n[bold blue]>[/]")
             if not command.strip():
                 continue
             cli(command.split(), standalone_mode=False)
