@@ -16,7 +16,7 @@ console = Console(force_terminal=True)
 processor: Processor = None
 
 logging.basicConfig(
-    level="INFO",
+    level="DEBUG",
     format="%(message)s",
     datefmt="[%X]",
     handlers=[RichHandler(console=console, markup=True, show_path=False)],
@@ -45,6 +45,11 @@ def gloss():
     console.print(gloss_text)
     return
 
+@cli.command()
+def draw(level: int = 0):
+    tree = processor.interpreter.draw_tree(tree=level)
+    console.print(tree)
+    return
 
 @cli.command()
 def exit():

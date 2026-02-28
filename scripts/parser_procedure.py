@@ -2,7 +2,6 @@ import os
 import sys
 import csv
 import json
-
 import logging
 
 from typing import Tuple, Optional, Generator
@@ -32,8 +31,6 @@ class Processor:
         self.max_level: int | None = max_level
         self.path: str = path
         self._load_params()
-        logger.addHandler(logging.NullHandler())
-        logging.basicConfig(format="[%(levelname)s] %(message)s")
         return
 
     def _load_params(self) -> None:
@@ -53,8 +50,8 @@ class Processor:
 
     def process(self, instr: str, verbose: bool = False) -> bool:
         """Parses the input string and applies the parsing to the trees."""
-        logger.level = logging.DEBUG if verbose else logging.INFO
-        logger.info(f"Parsing {instr}")
+        logger.setLevel(logging.DEBUG if verbose else logging.INFO)
+        logger.info(f"Parsing '{instr}'")
         # Resetting the parameters
         self.mapping = Mapping(self.levels)
         self.trees = [[] for lvl in self.levels]
@@ -64,9 +61,9 @@ class Processor:
         try:
             self.streamer.feed()
         except ParsingFailure:
-            logger.info(f"Failed to parse {instr}")
+            logger.info(f"Failed to parse '{instr}'")
             return False
-        logger.info(f"Successfully parsed {instr}")
+        logger.info(f"Successfully parsed '{instr}'")
         # Applying the obtained mapping to the trees
         for lvl in self.levels:
             if lvl < len(self.levels) - 1:
@@ -368,7 +365,7 @@ class Streamer:
         if not self.e.molar:
             self.e.set_head(self.prc.grules.heads[lvl - 1], fallback=True)
         self.prc.mapper.determine_stance(self.e)
-        logger.debug(f"=> Assigned the stance {self.e.stance} to {self.e}")
+        logger.debug(f"=> Fitted '{self.e}' with stance {self.e.stance}")
         return True
 
 
@@ -600,7 +597,7 @@ class Mapper:
 
         new_mask = f"{dich.masks[fit]}"
         num_strings = ["1st", "2nd"]
-        content = f"-> Fitting {repr(self.e.head)} to the {num_strings[fit]}"
+        content = f"-> Fitting '{repr(self.e.head)}' to the {num_strings[fit]}"
         if dich.split:
             logger.debug(f"{content} mask {new_mask}")
         else:
@@ -762,7 +759,7 @@ class Mapper:
             base = str(e.head.content.base)
             if not any([base in perm or aclass in perm, aclass == "Wildcard"]):
                 logger.warning(
-                    f"-> No permission for '{e.head}' [{aclass}] at {e.stance}"
+                    f"-> No permission for '{e.head}'/'{aclass}' at {e.stance}"
                 )
                 return False
 
@@ -835,7 +832,7 @@ class Mapper:
         for d in range(0, sum(self.prc.grules.struct[e.level])):
             dich = self.prc.masker.get_dichs(e.stance, e.level)
             if not self._decide_dichotomy(dich):
-                raise ParsingFailure(f"Failed to parse {e}")
+                raise ParsingFailure(f"Failed to parse '{e}'")
         return True
 
     def close(self, e: Element) -> bool:
@@ -1026,7 +1023,7 @@ class Interpreter:
         tree: Tree | int | None = None,
         features: bool = False,
         all_nodes: bool = False,
-    ) -> None:
+    ) -> str:
         """Prints out the given dichotomic tree with mapped elements."""
         if tree is None:
             tree = self.prc.trees[0][-1]
@@ -1040,9 +1037,7 @@ class Interpreter:
         st += "\n"
         st += tree.draw(features=features, all_nodes=all_nodes)
 
-        print(st)
-
-        return
+        return st
 
     def gloss(
         self,
