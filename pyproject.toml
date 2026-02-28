@@ -13,6 +13,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "ipykernel>=7.1.0",
+    "pyinstaller>=6.19.0",
     "pytest>=9.0.0",
     "ty>=0.0.1a31",
 ]

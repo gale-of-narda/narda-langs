@@ -144,16 +144,6 @@ class Dichotomy:
         """The depth of the dichotomy is the greatest depth of its masks."""
         return max([m.depth for m in self.masks])
 
-    def record(self, pos: int, rep: int) -> None:
-        target_mask = self.masks[self.pointer]
-        other_mask = self.masks[1 - self.pointer]
-        self.reset_mask(other_mask)
-        if target_mask.rep < rep:
-            self.reset_mask(target_mask)
-        target_mask.pos = pos
-        target_mask.rep = rep
-        return
-
 
 class Mask:
     """A string to be used as the mask for the candidate character undergoing

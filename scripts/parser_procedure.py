@@ -1,7 +1,9 @@
+import os
+import sys
 import csv
 import json
+
 import logging
-import logging.config
 
 from typing import Tuple, Optional, Generator
 from pathlib import Path
@@ -11,9 +13,6 @@ from scripts.parser_dataclasses import Alphabet, GeneralRules, SpecialRules
 from scripts.parser_dataclasses import Dialect, Feature, Stance, Token, Symbol
 
 logger = logging.getLogger(__name__)
-logger.addHandler(logging.NullHandler())
-
-logging.basicConfig(format="[%(levelname)s] %(message)s")
 
 
 class ParsingFailure(Exception):
@@ -33,6 +32,8 @@ class Processor:
         self.max_level: int | None = max_level
         self.path: str = path
         self._load_params()
+        logger.addHandler(logging.NullHandler())
+        logging.basicConfig(format="[%(levelname)s] %(message)s")
         return
 
     def _load_params(self) -> None:
@@ -65,7 +66,7 @@ class Processor:
         except ParsingFailure:
             logger.info(f"Failed to parse {instr}")
             return False
-        logger.info(f"Successfully parsed {instr} as {self.mapping.elems[-1]}")
+        logger.info(f"Successfully parsed {instr}")
         # Applying the obtained mapping to the trees
         for lvl in self.levels:
             if lvl < len(self.levels) - 1:
@@ -95,18 +96,27 @@ class Loader:
         self.path = path
         return
 
+    def _get_resource_path(self, relative_path):
+        """Gets the absolute resource path (necessary for PyInstaller)."""
+        try:
+            base_path = sys._MEIPASS
+        except Exception:
+            base_path = os.path.abspath(".")
+        return os.path.join(base_path, relative_path)
+
     def _load_json(self, path: str) -> str:
-        path = Path(self.path + path)
+        """Loads the JSON file at path."""
+        path = Path(self._get_resource_path(self.path + path))
         try:
             with path.open("r", encoding="utf-8") as f:
                 data = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError) as e:
-            logger.exception("Failed to load parameters from {path}")
+            logger.exception(f"Failed to load parameters from {path}")
             raise e
         return data
 
     def load_alphabet(self) -> Alphabet:
-        """Loads the alphabet and extracts the four types of characters."""
+        """Loads the alphabet and extracts the three classes of characters."""
         data = self._load_json("params/alphabet.json")
         alphabet = Alphabet(
             bases=data["Bases"],
@@ -152,7 +162,8 @@ class Loader:
         # Loading the features with functions and arguments
         tables = {"untyped": [], "typed": []}
         for t in tables:
-            path = Path(self.path + f"params/features_{t}.csv")
+            tbl = f"params/features_{t}.csv"
+            path = Path(self._get_resource_path(self.path + tbl))
             with path.open("r", encoding="utf-8-sig") as f:
                 reader = csv.DictReader(f, delimiter=";")
                 for line in reader:
@@ -429,8 +440,6 @@ class Masker:
                     right_mask.lemb = rlembs[p : p + 2][1] if rlds else 0
                     left_mask.depth = depth or 0
                     right_mask.depth = depth or 0
-                    left_mask.logger = logger
-                    right_mask.logger = logger
 
                     # Neutral elements only for the lowest terminal masks
                     if d == 0 and lvl == 0:

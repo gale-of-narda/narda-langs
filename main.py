@@ -1,4 +1,3 @@
-import sys
 import typer
 import logging
 
@@ -27,10 +26,10 @@ logging.basicConfig(
 @cli.command()
 def process(text: str, verbose: bool = typer.Option(False, "--verbose", "-v")):
     res = processor.process(text, verbose=verbose)
-    success = "[bold green]Successfully parsed[/bold green]"
-    fail = "[bold red]Parsing failed for[/bold red]"
+    success = f"[bold green]Input string {text} is well-formed[/bold green]"
+    fail = f"[bold red]Input string {text} is not well-formed[/bold red]"
     res_string = success if res else fail
-    console.print(f"{res_string} '{text}'")
+    console.print(res_string)
     return
 
 
@@ -64,7 +63,7 @@ def main(path: str = ""):
 
     while True:
         try:
-            command = console.input("\n[bold blue]>[/]")
+            command = console.input("\n[bold blue]>[/] ")
             if not command.strip():
                 continue
             cli(command.split(), standalone_mode=False)

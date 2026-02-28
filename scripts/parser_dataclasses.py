@@ -246,14 +246,14 @@ class Token:
         base = self.base.aclass == "Embedder"
         level = self.base.level == lvl
         quality = self.base.quality in (None, 0)
-        return min(base, level, quality)
+        return all((base, level, quality))
 
     def is_popper(self, lvl: int) -> bool:
         """Checks if the token acts as a popper."""
         base = self.base.aclass == "Embedder"
         level = self.base.level == lvl
         quality = self.base.quality in (None, 1)
-        return min(base, level, quality)
+        return all((base, level, quality))
 
     def is_wild(self, lv: int = 0) -> bool:
         return False
