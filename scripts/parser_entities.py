@@ -40,15 +40,19 @@ class Mapping:
         return stack
 
     def enumerate_elems(
-        self, num_key: list[int], elems: list[Element], d: int
+        self, num_key: list[int], elems: list[Element], d: int, preceding: bool = False
     ) -> Dict[str, list[int]]:
         """Returns a list of indices of the given list of elements that conform
         to the given key, arranging them into a dict of lists where the keys are
         the reps before d.
+
+        If preceding is True, finds elements with key less than the given one.
         """
         matches = {}
         for i, e in enumerate(elems):
-            if e.stance.pos[: len(num_key)] == num_key:
+            if (not preceding and e.stance.pos[: len(num_key)] == num_key) or (
+                preceding and e.stance.pos[: len(num_key)] < num_key
+            ):
                 slot = "".join(str(r) for r in e.stance.rep[:d])
                 if slot not in matches:
                     matches[slot] = [i]
@@ -157,7 +161,7 @@ class Mask:
     def __init__(
         self, premask: str, rank: int = 0, num: int = 0, depth: int = 0
     ) -> None:
-        self.literals, self.optionals = self._decode(premask)
+        self.literals, self.optionals, self.necessities = self._decode(premask)
         self.rank, self.num, self.depth = rank, num, depth
         self.tneuts = None
         self.rev = None
@@ -174,9 +178,10 @@ class Mask:
         lits = ["".join(lit) for lit in self.literals]
         for n, lit in enumerate(lits):
             opt = "?" if self.optionals[n] else ""
+            ncs = "!" if self.necessities[n] else ""
             brd = f"({lit})" if len(lit) > 1 else lit
             und = [f"{b}̲" if self.pos == n and b not in "()" else b for b in brd]
-            out += opt + "".join(und)
+            out += opt + ncs + "".join(und)
         return f"'{out}'"
 
     @property
@@ -200,29 +205,33 @@ class Mask:
         """Decodes the terminal permissions defined in the general rules
         to transform them into masks.
         """
-        optional, bracketed = False, False
-        literals, optionals, group = [], [], []
+        optional, necessary, bracketed = False, False, False
+        literals, optionals, necessities, group = [], [], [], []
 
         for c in premask:
             match c:
                 case "?":
                     optional = True
+                case "!":
+                    necessary = True
                 case "(":
                     bracketed = True
                 case ")":
                     optionals.append(optional)
-                    bracketed, optional = False, False
+                    necessities.append(necessary)
+                    bracketed, optional, necessary = False, False, False
                     literals += [group]
                     group = []
                 case _:
                     group += c
                     if not bracketed:
                         optionals.append(optional)
-                        optional = False
+                        necessities.append(necessary)
+                        optional, necessary = False, False
                         literals += [group]
                         group = []
 
-        return literals, optionals
+        return literals, optionals, necessities
 
     def compare(
         self,
@@ -326,14 +335,22 @@ class Element:
         return
 
     def __repr__(self) -> str:
+        return self.represent()
+
+    def represent(self, depth: int | None = None) -> str:
+        """Represents the element as a string as seen from the given depth
+        (depth defines which head is emphasized).
+        """
+        if depth is None:
+            depth = self.stance.depth if self.stance else 0
         if self.molar:
             return str(self.content)
         else:
             out = ""
             for c in self.content:
                 sep = "·" if len(out) > 0 and c.level > 0 else ""
-                out += f"{sep}{repr(c)}"
-                if c.level == 0 and c is self.head:
+                out += f"{sep}{c.represent(depth)}"
+                if c.level == 0 and c is self.get_matching_head(depth):
                     out += "̲"
             return out
 
@@ -353,10 +370,7 @@ class Element:
         """The main head of the element, which is the first one or the element
         itself if no heads are set.
         """
-        if not self.heads:
-            return self
-        else:
-            return self.heads[0]
+        return self if not self.heads else self.heads[0]
 
     @property
     def header(self) -> Element:
@@ -445,7 +459,7 @@ class Tree:
         """
         # Rank of the current node, number of its children and nodes on the next rank
         r = node.rank
-        sibs = 2 ** self.struct[r]
+        sibs = 2 ** self.struct[r] if self.struct[r] > 0 else 0
         ranks = sum([2**s for s in self.struct[:r]]) + 1
         # Creating children of the current node
         for sibnum in range(0, sibs):
@@ -502,27 +516,6 @@ class Tree:
         """
         nodes: list[Node] = self.root.downstream
         return sorted(nodes, key=lambda node: node.num)
-
-    def get_interpretable_nodes(self, complexes: bool = False) -> list[Node]:
-        """Returns terminal nodes with content. If complexes is True,
-        recursively includes lists of those for the embedded trees.
-        """
-        sorted_nodes = sorted(
-            [n for n in self.all_nodes if n.content and n.terminal],
-            key=lambda node: node.content[0].order,
-        )
-
-        out = [n for n in sorted_nodes]
-        if complexes:
-            ind = 0
-            for node in sorted_nodes:
-                for c in node.complexes:
-                    embeds = c.get_interpretable_nodes(complexes=True)
-                    out.insert(ind, embeds)
-                    ind += 1
-                ind += 1
-
-        return out
 
     def draw(
         self,
@@ -607,15 +600,37 @@ class Tree:
         struct_sums = [sum(self.struct[: i + 1]) for i, s in enumerate(self.struct)]
         struct_to_loop = [s for s in struct_sums if s <= len(pos)]
         for s in struct_to_loop:
-            node = node.children[int(pos[cursor : cursor + s], 2)]
-            comp = comps[cursor : cursor + s][-1]
-            if comp > 0:
-                node = node.compounds[comp - 1]
-            cursor += s
-            out.append(node)
+            if node.children:
+                node = node.children[int(pos[cursor : cursor + s] or '0', 2)]
+                comp = comps[cursor : cursor + s][-1]
+                if comp > 0:
+                    node = node.compounds[comp - 1]
+                cursor += s
+                out.append(node)
         return out if upstream else out[-1]
 
-    def set_element(self, e: Element, sep: str = "", set_all: bool = True) -> None:
+    def get_interpretable_nodes(self, complexes: bool = False) -> list[Node]:
+        """Returns terminal nodes with content. If complexes is True,
+        recursively includes lists of those for the embedded trees.
+        """
+        sorted_nodes = sorted(
+            [n for n in self.all_nodes if n.content and n.terminal],
+            key=lambda node: node.content[0].order,
+        )
+
+        out = [n for n in sorted_nodes]
+        if complexes:
+            ind = 0
+            for node in sorted_nodes:
+                for c in node.complexes:
+                    embeds = c.get_interpretable_nodes(complexes=True)
+                    out.insert(ind, embeds)
+                    ind += 1
+                ind += 1
+
+        return out
+
+    def set_element(self, e: Element, set_all: bool = True) -> None:
         """Maps the element to the node addressed by its stance.
         If set_all is True, also maps it continuously to parent nodes
         all the way up to the root.
@@ -627,7 +642,6 @@ class Tree:
             for s in struct[: len(e.stance.pos) + 1]:
                 node = self.get_nodes(e.stance.copy(cursor + s))
                 node.map_element(e)
-                node.sep = sep
                 cursor += s
         return
 
@@ -649,18 +663,18 @@ class Node:
         self.sibnum: int = 0
         self.terminal: bool = False
         self._stance: Stance = Stance()
-        self.parent: Optional[Node] = None
+        self.parent: Node | None = None
         self.children: list[Node] = []
         self.compounds: list[Node] = []
         self.complexes: list[Tree] = []
         self.content: list[Element] = []
-        self.feature: Optional[Feature] = None
-        self.sep: str = str()
+        self.feature: Feature | None = None
         return
 
     def __repr__(self) -> str:
-        content = [str(e.preheader) for e in self.content] if self.content else ""
-        return f"N({self.num}): {self.sep.join(content)}"
+        cnt = [e.represent() for e in self.content] if self.content else ""
+        sep = "" if not self.content or self.content[0].level == 0 else "·"
+        return f"N({self.num}): {sep.join(cnt)}"
 
     def __str__(self) -> str:
         return repr(self)

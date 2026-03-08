@@ -4,7 +4,7 @@ import csv
 import json
 import logging
 
-from typing import Tuple, Optional, Generator
+from typing import Tuple, Optional, Generator, Dict
 from pathlib import Path
 
 from scripts.parser_entities import Mapping, Dichotomy, Tree, Node, Mask, Element
@@ -205,7 +205,7 @@ class Streamer:
         and tokenization of the input string.
         """
         t: Token | None = None
-        linstr = [ch for ch in self.instr]
+        linstr = [ch.lower() for ch in self.instr]
         for i, ch in enumerate(linstr):
             # Wrapping the char into a symbol if it is alphabetic
             subs = self.prc.alphabet.substitutions
@@ -243,7 +243,7 @@ class Streamer:
         # Exhausting the stream
         while True:
             t = next(stream, None)
-            # When the last token is reached, separation and popping is enforced
+            # When the last token is reached, do the closing operations
             if t is None:
                 self.pop(max(self.prc.levels) - 1, deep=True)
                 self.separate(max(self.prc.levels), deep=True)
@@ -269,12 +269,11 @@ class Streamer:
 
     def add(self) -> None:
         """Adds the current element to stack, parses and closes it."""
-        lvl = self.e.level
-        self.e.stance = Stance(depth=self.prc.mapping.cur_dpt[lvl])
+        lvl, dpt = self.e.level, self.prc.mapping.cur_dpt[self.e.level]
+        self.e.stance = Stance(depth=dpt)
         self.prc.mapper.close(self.e)
         self.parse()
-        stack = self.prc.mapping.get_stack(lvl)
-        stack.append(self.e)
+        self.prc.mapping.get_stack(lvl).append(self.e)
         return
 
     def separate(self, lvl: int, deep: bool = False) -> None:
@@ -319,7 +318,7 @@ class Streamer:
             self.prc.mapping.cur_dpt[lvl] -= 1
             self.parse()
             dpt = self.prc.mapping.cur_dpt[lvl]
-            logger.debug(f"-> Depth at level {lvl} decreased to {dpt}")
+            logger.debug(f"[L{lvl}|D{dpt + 1}] Depth at level {lvl} decreased to {dpt}")
             if not deep:
                 break
         return
@@ -335,7 +334,7 @@ class Streamer:
         if self.prc.mapping.cur_dpt[lvl] >= len(self.prc.mapping.cur_breaks[lvl]):
             self.prc.mapping.cur_breaks[lvl].append(0)
         dpt = self.prc.mapping.cur_dpt[lvl]
-        logger.debug(f"-> Depth at level {lvl} increased to {dpt}")
+        logger.debug(f"[L{lvl}|D{dpt - 1}] Depth at level {lvl} increased to {dpt}")
         return
 
     def account_breaker(self, late: bool) -> None:
@@ -348,9 +347,7 @@ class Streamer:
             if mod.asubcat == "Breaker" and mod.quality == int(late):
                 self.prc.mapping.cur_breaks[lvl][dpt] += mod.index + 1
                 brk = self.prc.mapping.cur_breaks[lvl][dpt]
-                logger.debug(
-                    f"-> Breaker count at level {lvl}, depth {dpt} increased to {brk}"
-                )
+                logger.debug(f"[L{lvl}|D{dpt}] Breaker count increased to {brk}")
         return
 
     def parse(self) -> bool:
@@ -363,9 +360,11 @@ class Streamer:
             return True
         # Elements with lists of elements as content must have heads
         if not self.e.molar:
-            self.e.set_head(self.prc.grules.heads[lvl - 1], fallback=True)
+            num_lvl = lvl - 1 if lvl > self.e.content[0].level else lvl
+            self.e.set_head(self.prc.grules.heads[num_lvl], fallback=True)
         self.prc.mapper.determine_stance(self.e)
-        logger.debug(f"=> Fitted '{self.e}' with stance {self.e.stance}")
+        dpt = self.e.stance.depth
+        logger.debug(f"[L{lvl}|D{dpt}] Fit '{self.e}' with stance {self.e.stance}")
         return True
 
 
@@ -536,6 +535,7 @@ class Mapper:
         the former to either first or second mask of the latter.
         """
         lvl, dpt = self.e.level, self.e.stance.depth
+        P = f"[L{lvl}|D{dpt}]"
         # Conditions of fit for the 1st and 2nd masks
         conds = [
             any((not dich.pointer == 1, not dich.ret)),
@@ -577,14 +577,15 @@ class Mapper:
                 return self._decide_dichotomy(dich, forbid_shift=True)
             # If all fails
             else:
-                logger.warning(f"=> Could not decide {dich} for {self.e}")
+                logger.warning(f"{P} Could not decide {dich} for '{self.e}'")
                 return False
 
-        # Attempt closure if the obtained fit flips the pointer to 1
-        if not dich.terminal and (dich.pointer or 0) != fit:
+        # Attempt closure if the obtained fit flips the pointer to 1 permanently
+        # Makes sense only for return-restricted, non-terminal dichs
+        if all([dich.ret, not dich.terminal, (dich.pointer or 0) != fit]):
             closure = self._close_dichotomies(dich)
             if not closure:
-                logger.warning(f"=> Could not close {dich}")
+                logger.warning(f"{P} Could not close {dich}")
                 return False
 
         dich.pointer = fit
@@ -597,7 +598,7 @@ class Mapper:
 
         new_mask = f"{dich.masks[fit]}"
         num_strings = ["1st", "2nd"]
-        content = f"-> Fitting '{repr(self.e.head)}' to the {num_strings[fit]}"
+        content = f"{P} Fitting '{self.e}' to the {num_strings[fit]}"
         if dich.split:
             logger.debug(f"{content} mask {new_mask}")
         else:
@@ -651,8 +652,9 @@ class Mapper:
                     new_stance.rep[dich.d] = mask_to.rep + n
                     fit = self._fit_element(elems[i], new_stance, dich.d)
                     if fit:
+                        dpt = elems[i].stance.depth
                         logger.debug(
-                            f"-> Shifted {elems[i]} from {old_stance} to {new_stance}"
+                            f"[L{level}|D{dpt}] Shifted {elems[i]} from {old_stance} to {new_stance}"
                         )
                         slot_in_process = True
                         elems_shifted += 1
@@ -677,59 +679,95 @@ class Mapper:
         return True
 
     def _fill_empty_terminals(self, dich: Dichotomy) -> bool:
-        """Adds neutral elements to mirror those with no siblings at terminal node
-        within the given list (or in the current stack if none are given).
+        """Adds neutral elements to match to empty masks within the given dichotomy
+        that (1) have a sibling with some elements fit or (2) are necessary.
 
-        Only applicable to the zeroth level.
+        Case (1) is applicable only to the zeroth level.
         """
-        level, depth = dich.level, dich.depth
-        if level != 0:
-            return True
-        elems = self.prc.mapping.get_stack(level, interval=True)
+        lvl, dpt = dich.level, dich.depth
+        enum_elems = self.prc.mapping.enumerate_elems
 
-        left_nk, right_nk = dich.masks[0].num_key, dich.masks[1].num_key
-        left_matches = self.prc.mapping.enumerate_elems(left_nk, elems, dich.d)
-        right_matches = self.prc.mapping.enumerate_elems(right_nk, elems, dich.d)
+        def get_sides():
+            elems = self.prc.mapping.get_stack(lvl, interval=True)
+            nk = [dich.masks[i].num_key for i in range(2)]
+            hits = [enum_elems(nk[i], elems, dich.d) for i in range(2)]
+            return elems, nk, hits
 
-        to_fill = [
-            (left_matches[lm], dich.masks[1], elems[left_matches[lm][0]])
-            for lm in left_matches
-            if not right_matches
-        ] + [
-            (right_matches[rm], dich.masks[0], elems[right_matches[rm][0]])
-            for rm in right_matches
-            if not left_matches
-        ]
+        # Find and fill empty necessary mask slots
+        elems, nk, hits = get_sides()
+        #logger.debug(f"Filling {dich} with l={hits[0]},r={hits[1]}")
+        to_fill = []
+        for i, mask in enumerate(dich.masks):
+            if mask.necessities[0] and not hits[i]:
+                prs = enum_elems(nk[i], elems, dich.d, True)
+                if prs:
+                    last_index = [idx for slot in prs.values() for idx in slot][-1]
+                    op_stance = Stance(
+                        pos=nk[1 - i],
+                        rep=[0] * len(nk[1 - i]),
+                        depth=mask.depth,
+                    )
+                    to_fill.append(([last_index], mask, op_stance))
+        if not self._neutralize(to_fill, lvl, dpt, compensate=False):
+            return False
 
-        for filling in to_fill:
-            indices, neut_mask, e = filling
-            if not neut_mask.tneuts[depth]:
-                continue
-            op_stance = e.stance.copy()
-            op_stance.pos[-1] = 1 - op_stance.pos[-1]
-            g = self.prc.alphabet.get_token(neut_mask.tneuts[depth])
-            neut = Element(g, op_stance, level)
-            fit = self._fit_element(neut, op_stance, term_only=True)
-            if not fit:
-                logger.warning(
-                    f"-> Could not fit neutral element {neut} with stance {op_stance}"
-                )
-                return False
+        # Find and fill empty sibling slots (level 0 only)
+        if lvl == 0:
+            elems, nk, hits = get_sides()
+            if hits[0] and not hits[1]:
+                occupied, empty = (0, 1)
+            elif hits[1] and not hits[0]:
+                occupied, empty = (1, 0)
             else:
-                # Insert the neutral to the right or to the left of the original
-                # depending on rev and whether it is the right or left sibling
-                logger.debug(f"-> Inserting {neut} with stance {op_stance}")
+                return True
+            to_fill = []
+            for slot in hits[occupied]:
+                slot_hits = hits[occupied][slot]
+                slot_mask = dich.masks[empty]
+                slot_stances = elems[hits[occupied][slot][0]].stance.copy()
+                to_fill.append((slot_hits, slot_mask, slot_stances))
+            if not self._neutralize(to_fill, lvl, dpt, compensate=True):
+                return False
+
+        return True
+
+    def _neutralize(
+        self, to_fill: Dict[str, list[int]], lvl: int, dpt: int, compensate: bool
+    ) -> bool:
+        """Inserts neutral elements at the given addresses for the given level
+        and depth.
+        """
+        #logger.debug(f"Neutralizing on level {lvl} at {to_fill}")
+        elems = self.prc.mapping.get_stack(lvl, interval=True)
+        for indices, neut_mask, op_stance in to_fill:
+            if not neut_mask.tneuts[dpt]:
+                continue
+            op_stance.pos[-1] = 1 - op_stance.pos[-1]
+            t = self.prc.alphabet.get_token(neut_mask.tneuts[dpt])
+            neut = Element(t, op_stance, lvl)
+            if not self._fit_element(neut, op_stance, term_only=True):
+                logger.warning(f"[L{lvl}|D{dpt}] Could not fit {neut} to {op_stance}")
+                return False
+
+            logger.debug(f"[L{lvl}|D{dpt}] Inserting {neut} with stance {op_stance}")
+
+            if compensate:
                 slot = op_stance.pos[-1] if not neut_mask.rev else 1 - op_stance.pos[-1]
                 insert_index = min(indices) if slot == 0 else max(indices)
-                neut.head.content.base.order = (
-                    elems[insert_index].head.content.base.order + slot - 1
-                )
-                if isinstance(self.e.content, list):
-                    if self.e.content[0].level != self.e.level:
-                        self.e.content.insert(insert_index + slot, neut)
-                bdr = self.prc.mapping.cur_bdr[level]
-                stack = self.prc.mapping.get_stack(level)
-                stack.insert(bdr + insert_index + slot, neut)
+            else:
+                slot = 1
+                insert_index = max(indices)
+
+            base_order = elems[insert_index].head.content.base.order
+            slot_order = slot - 1 if compensate else 1
+            neut.head.content.base.order = base_order + slot_order
+
+            if isinstance(self.e.content, list):
+                if self.e.content[0].level != self.e.level:
+                    self.e.content.insert(insert_index + slot, neut)
+
+            stack = self.prc.mapping.get_stack(lvl)
+            stack.insert(self.prc.mapping.cur_bdr[lvl] + insert_index + slot, neut)
 
         return True
 
@@ -773,7 +811,6 @@ class Mapper:
         If no dichotomy is given, starts from the last fitted branch
         of the topmost dichotomy for the current element.
         """
-
         if dich is None:
             elems = self.e.content
             level, depth = elems[0].level, elems[0].stance.depth
@@ -781,7 +818,7 @@ class Mapper:
         else:
             elems = None
             level, depth = dich.level, dich.depth
-
+        #logger.debug(f"Closing dich {dich}")
         res = True
         stance = Stance(pos=dich.masks[dich.pointer or 0].num_key, depth=depth)
         dichs = self.prc.masker.get_dichs(stance, level, downstream=True)
@@ -842,7 +879,7 @@ class Mapper:
         self.e = e
         if e.molar:
             return True
-
+        # logger.debug(f"Closing element {e}")
         if not self._close_dichotomies():
             raise ParsingFailure("Failed to close the dichotomies")
 
@@ -882,14 +919,9 @@ class Interpreter:
             if not e.molar and e.content[0].level == e.level:
                 base_node = tree.get_nodes(e.stance)
                 tree.embed_complex(base_node)
-                logger.debug(f"Embedded a complex at {base_node}")
                 self.apply(e.content, base_node.complexes[-1])
 
-            if e.level > 0:
-                sep = self.prc.alphabet.separators[e.level - 1]
-            else:
-                sep = ""
-            tree.set_element(e, sep, set_all=True)
+            tree.set_element(e, set_all=True)
 
         return
 
@@ -938,7 +970,7 @@ class Interpreter:
         if fits:
             tree.ctype = fits[0]
         else:
-            logger.warning(f"Illegal composition type at level {tree.level}")
+            logger.warning(f"Undefined composition type at level {tree.level}")
 
         # Do the same for all embedded trees
         for node in [n for n in tree.all_nodes if n.complexes]:
