@@ -23,11 +23,7 @@ class ParsingFailure(Exception):
 class Processor:
     """Orchestrates all language operations."""
 
-    def __init__(
-        self,
-        max_level: int | None = None,
-        path: str = "",
-    ) -> None:
+    def __init__(self, max_level: int | None = None, path: str = "") -> None:
         self.max_level: int | None = max_level
         self.path: str = path
         self._load_params()
@@ -82,6 +78,13 @@ class Processor:
     def get_stances(self, lvl: int = -1) -> list[Stance]:
         """Produces the list of stances of the elements of the given level."""
         return [e.stance for e in self.mapping.elems[lvl]]
+
+    @property
+    def last_level(self) -> int:
+        if self.max_level is not None:
+            return self.max_level
+        else:
+            return max(self.levels)
 
 
 class Loader:
@@ -245,8 +248,7 @@ class Streamer:
             t = next(stream, None)
             # When the last token is reached, do the closing operations
             if t is None:
-                self.pop(max(self.prc.levels) - 1, deep=True)
-                self.separate(max(self.prc.levels), deep=True)
+                self.complete()
                 return True
             self.t = t
             lvl = t.base.level
@@ -281,25 +283,26 @@ class Streamer:
         into an element of the higher level and adds it to corresponding stack.
         """
         for level in self.prc.levels:
-            if level == lvl or deep:
+            if (level == lvl or deep) and level <= self.prc.last_level:
                 # If the current depth of embedding is above zero on the same level,
                 # pop until it reaches zero
+                if level > 0:
+                    self.pop(lvl, deep=True)
                 interval = self.prc.mapping.get_interval(level)
                 if interval and level < len(self.prc.levels) - 1:
                     self.e = Element(interval, level=level + 1)
                     self.add()
                     self.prc.masker.construct(level)
                     self.prc.mapping.update_interval(level)
-                if level > 0:
-                    self.pop(lvl, deep=True)
         return
 
     def pop(self, lvl: int, deep: bool = False) -> None:
         """Decreases the current depth of complex embedding, wraps the current
         stack interval into an element of the same level and parses it.
         """
-        if lvl > 0:
-            self.separate(lvl - 1, deep=True)
+        # Perform the separation on the previous level if it hasn't already been
+        if self.prc.mapping.get_interval(lvl - 1):
+            self.separate(lvl - 1)
         while self.prc.mapping.cur_dpt[lvl] > 0:
             # Popping only operates on the latest item in the element buffer,
             # which must also be a list of elements
@@ -335,6 +338,17 @@ class Streamer:
             self.prc.mapping.cur_breaks[lvl].append(0)
         dpt = self.prc.mapping.cur_dpt[lvl]
         logger.debug(f"[L{lvl}|D{dpt - 1}] Depth at level {lvl} increased to {dpt}")
+        return
+
+    def complete(self) -> None:
+        """Wraps up the stream by performing final popping and separation.
+        Necessary in case the corresponding tokens were omitted by the end
+        of the input string.
+        """
+        for level in self.prc.levels:
+            if level <= self.prc.last_level:
+                self.pop(level, deep=True)
+        self.separate(self.prc.last_level, deep=True)
         return
 
     def account_breaker(self, late: bool) -> None:
@@ -578,6 +592,7 @@ class Mapper:
             # If all fails
             else:
                 logger.warning(f"{P} Could not decide {dich} for '{self.e}'")
+                logger.warning(f"{P} Current stance {self.e.stance}'")
                 return False
 
         # Attempt closure if the obtained fit flips the pointer to 1 permanently
@@ -695,7 +710,7 @@ class Mapper:
 
         # Find and fill empty necessary mask slots
         elems, nk, hits = get_sides()
-        #logger.debug(f"Filling {dich} with l={hits[0]},r={hits[1]}")
+        # logger.debug(f"Filling {dich} with l={hits[0]},r={hits[1]}")
         to_fill = []
         for i, mask in enumerate(dich.masks):
             if mask.necessities[0] and not hits[i]:
@@ -737,7 +752,7 @@ class Mapper:
         """Inserts neutral elements at the given addresses for the given level
         and depth.
         """
-        #logger.debug(f"Neutralizing on level {lvl} at {to_fill}")
+        # logger.debug(f"Neutralizing on level {lvl} at {to_fill}")
         elems = self.prc.mapping.get_stack(lvl, interval=True)
         for indices, neut_mask, op_stance in to_fill:
             if not neut_mask.tneuts[dpt]:
@@ -777,7 +792,6 @@ class Mapper:
         """
         level = 0
         elems = self.e.content
-
         cnt = 0
         addr = None
         for i, e in enumerate(elems):
@@ -818,7 +832,6 @@ class Mapper:
         else:
             elems = None
             level, depth = dich.level, dich.depth
-        #logger.debug(f"Closing dich {dich}")
         res = True
         stance = Stance(pos=dich.masks[dich.pointer or 0].num_key, depth=depth)
         dichs = self.prc.masker.get_dichs(stance, level, downstream=True)
@@ -879,7 +892,6 @@ class Mapper:
         self.e = e
         if e.molar:
             return True
-        # logger.debug(f"Closing element {e}")
         if not self._close_dichotomies():
             raise ParsingFailure("Failed to close the dichotomies")
 

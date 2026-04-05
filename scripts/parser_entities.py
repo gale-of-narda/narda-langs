@@ -349,9 +349,12 @@ class Element:
             out = ""
             for c in self.content:
                 sep = "·" if len(out) > 0 and c.level > 0 else ""
-                out += f"{sep}{c.represent(depth)}"
-                if c.level == 0 and c is self.get_matching_head(depth):
-                    out += "̲"
+                if c is self.get_matching_head(depth):
+                    out += f"{sep}{c.represent(depth)}"
+                    if c.level == 0:
+                        out += "̲"
+                else:
+                    out += f"{sep}{c.represent()}"
             return out
 
     @property
@@ -396,13 +399,16 @@ class Element:
         if self.molar:
             return False
         fit = False
-        # Try each permitted stance one by one until the first fitting element
+        # Try each permitted stance one by one until the first fitting stance
+        # Compounds with the same stance are recorded together
         for num in nums if isinstance(nums, list) else [nums]:
-            for e in self.content:
-                if int(e.stance.key or "0", 2) == num:
-                    self.heads.append(e)
-                    fit = True
-        # If no elements are found, set the first one
+            if not fit:
+                for e in self.content:
+                    if int(e.stance.key or "0", 2) == num:
+                        self.heads.append(e)
+                        fit = True
+        # If fallback is permitted and no fitting elements are found,
+        # set the first one as the head
         if not fit and fallback:
             self.heads.append(self.content[0])
         else:
@@ -410,9 +416,9 @@ class Element:
         return True
 
     def get_matching_head(self, depth: int | None = None) -> Element:
-        """Retrieves the n-th head of the element, where n is the difference
-        between the element's current stance depth and the given depth.
-        Used for matching elements to masks.
+        """Retrieves the n-th head of the element counting from the right,
+        where n is the difference between the element's current stance depth
+        and the given depth. Used for matching elements to masks.
 
         If no depth is given, no stance exists, or no heads are set,
         returns the main head.
@@ -601,7 +607,7 @@ class Tree:
         struct_to_loop = [s for s in struct_sums if s <= len(pos)]
         for s in struct_to_loop:
             if node.children:
-                node = node.children[int(pos[cursor : cursor + s] or '0', 2)]
+                node = node.children[int(pos[cursor : cursor + s] or "0", 2)]
                 comp = comps[cursor : cursor + s][-1]
                 if comp > 0:
                     node = node.compounds[comp - 1]
