@@ -211,3 +211,4 @@ old/
 .vscode/
 testing/
 install.bat
+.claude/
