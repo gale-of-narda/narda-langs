@@ -1039,14 +1039,11 @@ class Interpreter:
         rich: bool = False,
         _prefix: str = "·",
         _depth: int = 0,
-        _lvl: int | None = None,
-        _num: int | None = None,
     ) -> object | None:
         """Summarises the interpreted features of the tree.
 
         If rich is True, returns a Rich Group of Tables.
         Otherwise logs the summary via the logger and returns None.
-        _lvl and _num label the tree's position and appear as L/N columns.
         """
         if tree is None:
             tree = self.prc.trees[0][0]
@@ -1067,22 +1064,13 @@ class Interpreter:
                 highlight=True,
                 title_style="bold",
             )
-            if _lvl is not None:
-                table.add_column("L", style="dim", no_wrap=True)
-            if _num is not None:
-                table.add_column("N", style="dim", no_wrap=True)
             table.add_column("", style="cyan", no_wrap=True)
             table.add_column("Function", style="green")
             table.add_column("Argument", style="yellow")
             if verbose:
                 table.add_column("Description", style="dim")
             for node in featured:
-                row = []
-                if _lvl is not None:
-                    row.append(str(_lvl))
-                if _num is not None:
-                    row.append(str(_num))
-                row += [
+                row = [
                     str(node.content[0]),
                     node.feature.function_name,
                     node.feature.argument_name,
