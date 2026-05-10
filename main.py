@@ -1,5 +1,8 @@
+import shlex
 import typer
 import logging
+
+from typing import Annotated
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -24,32 +27,48 @@ logging.basicConfig(
 
 
 @cli.command()
-def process(text: str, verbose: bool = typer.Option(False, "--verbose", "-v")):
+def parse(text: str, verbose: bool = typer.Option(False, "--verbose", "-v")):
     res = processor.process(text, verbose=verbose)
-    success = f"[bold green]Input string {text} is well-formed[/bold green]"
-    fail = f"[bold red]Input string {text} is not well-formed[/bold red]"
+    success = f"[bold green]String '{text}' is grammatical[/bold green]"
+    fail = f"[bold red]String '{text}' is not grammatical[/bold red]"
     res_string = success if res else fail
     console.print(res_string)
     return
 
 
 @cli.command()
-def describe(verbose: bool = typer.Option(False, "--verbose", "-v")):
-    processor.interpreter.describe(verbose=verbose)
+def describe(
+    lvl: Annotated[int, typer.Option(help="The level of the tree.")] = 0,
+    num: Annotated[int, typer.Option(help="Ordinal number of the tree.")] = 0,
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+):
+    tree = processor.trees[lvl][num]
+    description = processor.interpreter.describe(tree, verbose=verbose, rich=True)
+    console.print(description)
     return
 
 
 @cli.command()
-def gloss():
-    gloss_text = processor.interpreter.gloss()
-    console.print(gloss_text)
+def gloss(
+    lvl: Annotated[int, typer.Option(help="The level of the tree.")] = 0,
+    num: Annotated[int, typer.Option(help="Ordinal number of the tree.")] = 0,
+):
+    tree = processor.trees[lvl][num]
+    gloss_string = processor.interpreter.gloss(tree)
+    console.print(gloss_string)
     return
 
+
 @cli.command()
-def draw(level: int = 0):
-    tree = processor.interpreter.draw_tree(tree=level)
-    console.print(tree)
+def draw(
+    lvl: Annotated[int, typer.Option(help="The level of the tree.")] = 0,
+    num: Annotated[int, typer.Option(help="Ordinal number of the tree.")] = 0,
+):
+    tree = processor.trees[lvl][num]
+    tree_string = processor.interpreter.draw_tree(tree)
+    console.print(tree_string)
     return
+
 
 @cli.command()
 def exit():
@@ -71,7 +90,7 @@ def main(path: str = ""):
             command = console.input("\n[bold blue]>[/] ")
             if not command.strip():
                 continue
-            cli(command.split(), standalone_mode=False)
+            cli(shlex.split(command), standalone_mode=False)
         except ExitException:
             break
         except Exception as e:

@@ -7,9 +7,13 @@ import logging
 from typing import Tuple, Optional, Generator, Dict
 from pathlib import Path
 
-from scripts.parser_entities import Mapping, Dichotomy, Tree, Node, Mask, Element
+from scripts.parser_entities import Mapping, Dichotomy, Tree, Mask, Element
 from scripts.parser_dataclasses import Alphabet, GeneralRules, SpecialRules
 from scripts.parser_dataclasses import Dialect, Feature, Stance, Token, Symbol
+
+from rich.table import Table
+from rich.console import Group
+from rich import box
 
 logger = logging.getLogger(__name__)
 
@@ -316,7 +320,7 @@ class Streamer:
                 content = content[-1]
 
             e = Element(content, level=lvl)
-            e.stance = Stance(depth=self.prc.mapping.cur_dpt[lvl]-1)
+            e.stance = Stance(depth=self.prc.mapping.cur_dpt[lvl] - 1)
             self.e = e
             self.prc.mapper.close(e)
             self.prc.masker.construct(lvl, self.prc.mapping.cur_dpt[lvl])
@@ -332,7 +336,7 @@ class Streamer:
 
             dpt = self.prc.mapping.cur_dpt[lvl]
             logger.debug(f"[L{lvl}|D{dpt + 1}] Depth at level {lvl} decreased to {dpt}")
-            
+
             if not deep:
                 break
 
@@ -604,7 +608,6 @@ class Mapper:
             # If all fails
             else:
                 logger.warning(f"{P} Could not decide {dich} for '{self.e}'")
-                logger.warning(f"{P} Current stance {self.e.stance}'")
                 return False
 
         # Attempt closure if the obtained fit flips the pointer to 1 permanently
@@ -1033,25 +1036,79 @@ class Interpreter:
         self,
         tree: Tree | int | None = None,
         verbose: bool = False,
-        prefix: str = "·",
-    ) -> None:
-        """Prints out a summary of interpreted features currently loaded
-        into the tree.
+        rich: bool = False,
+        _prefix: str = "·",
+        _depth: int = 0,
+        _lvl: int | None = None,
+        _num: int | None = None,
+    ) -> object | None:
+        """Summarises the interpreted features of the tree.
+
+        If rich is True, returns a Rich Group of Tables.
+        Otherwise logs the summary via the logger and returns None.
+        _lvl and _num label the tree's position and appear as L/N columns.
         """
         if tree is None:
             tree = self.prc.trees[0][0]
         elif isinstance(tree, int):
             tree = self.prc.trees[0][tree]
 
-        logger.info(f"{prefix} {tree.ctype} '{tree.working_string}'")
         nodes = tree.get_interpretable_nodes()
-        # Describe the elements mapped to the nodes themselves and their compounds
-        featureless = []
-        for node in nodes:
-            if node.feature:
+        featureless = [n for n in nodes if not n.feature]
+        featured = [n for n in nodes if n.feature]
+
+        if rich:
+            indent = "  " * _depth
+            ctype = tree.ctype or "Undefined"
+            table = Table(
+                title=f"{indent}{ctype}  [dim]'{tree.working_string}'[/dim]",
+                title_justify="left",
+                box=box.SIMPLE_HEAD,
+                highlight=True,
+                title_style="bold",
+            )
+            if _lvl is not None:
+                table.add_column("L", style="dim", no_wrap=True)
+            if _num is not None:
+                table.add_column("N", style="dim", no_wrap=True)
+            table.add_column("", style="cyan", no_wrap=True)
+            table.add_column("Function", style="green")
+            table.add_column("Argument", style="yellow")
+            if verbose:
+                table.add_column("Description", style="dim")
+            for node in featured:
+                row = []
+                if _lvl is not None:
+                    row.append(str(_lvl))
+                if _num is not None:
+                    row.append(str(_num))
+                row += [
+                    str(node.content[0]),
+                    node.feature.function_name,
+                    node.feature.argument_name,
+                ]
+                if verbose:
+                    row.append(node.feature.argument_description)
+                table.add_row(*row)
+            if featureless:
+                table.caption = (
+                    "[dim]No interpretation: "
+                    + ", ".join(str(n) for n in featureless)
+                    + "[/dim]"
+                )
+            renderables = [table]
+            for node in [n for n in tree.all_nodes if n.complexes]:
+                for c in node.complexes:
+                    renderables.append(
+                        self.describe(c, verbose=verbose, rich=True, _depth=_depth + 1)
+                    )
+            return Group(*renderables)
+        else:
+            logger.info(f"{_prefix} {tree.ctype} '{tree.working_string}'")
+            for node in featured:
                 msg = "%s> '%s' — %s: %s"
                 args = [
-                    prefix,
+                    _prefix,
                     node.content[0],
                     node.feature.function_name,
                     node.feature.argument_name,
@@ -1060,19 +1117,13 @@ class Interpreter:
                     msg += " — %s"
                     args.append(node.feature.argument_description)
                 logger.info(msg, *args)
-            else:
-                featureless.append(node)
-        # Note nodes with content but no discerned features
-        featureless_content = ", ".join([str(n) for n in featureless])
-        if featureless_content:
-            logger.info(
-                f"{prefix}>> Features lacking interpretation: {featureless_content}"
-            )
-        # Describe the embedded complexes
-        for node in [n for n in tree.all_nodes if n.complexes]:
-            for c in node.complexes:
-                self.describe(c, prefix=prefix + "·")
-        return
+            if featureless:
+                logger.info(
+                    f"{_prefix}>> Features lacking interpretation: {', '.join(str(n) for n in featureless)}"
+                )
+            for node in [n for n in tree.all_nodes if n.complexes]:
+                for c in node.complexes:
+                    self.describe(c, verbose=verbose, rich=False, _prefix=_prefix + "·")
 
     def draw_tree(
         self,
@@ -1098,44 +1149,77 @@ class Interpreter:
     def gloss(
         self,
         tree: Tree | int | None = None,
-        to_gloss: str | list[Node] | None = None,
-    ) -> None:
+    ) -> Table:
         """Iterates the terminal nodes of the tree and replaces the representations
         of their contents with the gloss strings defined by their features.
-        If to_gloss is a string, processes it first.
-        If to_gloss is a list of nodes, glosses them.
         """
         if tree is None:
             tree = self.prc.trees[0][-1]
         elif isinstance(tree, int):
             tree = self.prc.trees[0][tree]
 
-        if to_gloss is None:
-            logger.debug(f"{tree}")
-            items = tree.get_interpretable_nodes(complexes=True)
-        elif isinstance(to_gloss, str):
-            self.prc.process(to_gloss)
-            self.gloss(self.prc.trees[0][-1])
-        elif isinstance(to_gloss, list):
-            items = to_gloss
-        else:
-            raise ValueError(f"Invalid input to gloss: {to_gloss}")
+        items = tree.get_interpretable_nodes(complexes=True)
+        tokens = self._build_gloss_tokens(items)
 
-        glosses, current_glossless = [], ""
+        return self._render_gloss_table(tokens, tree)
+
+    def _build_gloss_tokens(self, items: list) -> list[tuple[str, str]]:
+        """Converts a flat list of nodes (and nested lists for complexes) into
+        a list of (form, gloss) pairs.
+        """
+        tokens: list[tuple[str, str]] = []
+        form_parts: list[str] = []
+        gloss_parts: list[str] = []
+
+        def flush():
+            if form_parts:
+                tokens.append(("-".join(form_parts), "-".join(gloss_parts)))
+                form_parts.clear()
+                gloss_parts.clear()
+
         for item in items:
             if isinstance(item, list):
-                if current_glossless:
-                    glosses.append(f"{current_glossless}-")
-                    current_glossless = ""
-                glosses.append(f"[{self.gloss(to_gloss=item)}]")
-            elif item.feature.argument_gloss:
-                if current_glossless:
-                    glosses.append(f"{current_glossless}-")
-                    current_glossless = ""
-                glosses.append(f"{item.feature.argument_gloss}-")
+                flush()
+                sub_tokens = self._build_gloss_tokens(item)
+                sub_form = "-".join(f for f, _ in sub_tokens)
+                sub_gloss = "-".join(g for _, g in sub_tokens)
+                tokens.append((f"[{sub_form}]", f"[{sub_gloss}]"))
             else:
-                current_glossless += "".join(str(e) for e in item.content)
+                form = "".join(str(e) for e in item.content)
+                gloss = (
+                    item.feature.argument_gloss
+                    if item.feature and item.feature.argument_gloss
+                    else form
+                )
+                if item.feature and item.feature.argument_gloss:
+                    flush()
+                    form_parts.append(form)
+                    gloss_parts.append(gloss)
+                else:
+                    form_parts.append(form)
+                    gloss_parts.append(gloss)
 
-        gloss = "".join(glosses).strip("-")
+        flush()
+        return tokens
 
-        return gloss
+    def _render_gloss_table(self, tokens: list[tuple[str, str]], tree: Tree) -> Table:
+        """Wraps a list of (form, gloss) pairs into a table."""
+        ctype = tree.ctype or "Undefined"
+        title = f"{ctype}  [dim]'{tree.working_string}'[/dim]"
+
+        table = Table(
+            title=title,
+            title_justify="left",
+            box=box.SIMPLE_HEAD,
+            show_header=False,
+            highlight=False,
+            title_style="bold",
+            padding=(0, 1),
+        )
+        for _ in tokens:
+            table.add_column(no_wrap=True)
+
+        table.add_row(*[f"[italic]{f}[/italic]" for f, _ in tokens])
+        table.add_row(*[f"[bold cyan]{g}[/bold cyan]" for _, g in tokens])
+
+        return table
