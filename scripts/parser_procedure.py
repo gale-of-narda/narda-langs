@@ -306,24 +306,36 @@ class Streamer:
         while self.prc.mapping.cur_dpt[lvl] > 0:
             # Popping only operates on the latest item in the element buffer,
             # which must also be a list of elements
-            content = self.prc.mapping.elems[lvl][-1]
-            if not isinstance(content, list):
-                return
-            elif len(content) == 0:
-                del self.prc.mapping.elems[lvl][-1]
-                return
+            content = self.prc.mapping.elems[lvl]
+            for i in range(self.prc.mapping.cur_dpt[lvl]):
+                if not isinstance(content[-1], list):
+                    return
+                elif len(content[-1]) == 0:
+                    del content[-1]
+                    return
+                content = content[-1]
+
             e = Element(content, level=lvl)
+            e.stance = Stance(depth=self.prc.mapping.cur_dpt[lvl]-1)
             self.e = e
             self.prc.mapper.close(e)
             self.prc.masker.construct(lvl, self.prc.mapping.cur_dpt[lvl])
             self.prc.mapping.cur_breaks[lvl][self.prc.mapping.cur_dpt[lvl]] = 0
-            self.prc.mapping.elems[lvl][-1] = e
-            self.prc.mapping.cur_dpt[lvl] -= 1
+
+            target = self.prc.mapping.elems[lvl]
+            for i in range(self.prc.mapping.cur_dpt[lvl] - 1):
+                target = target[-1]
+            target[-1] = e
+
             self.parse()
+            self.prc.mapping.cur_dpt[lvl] -= 1
+
             dpt = self.prc.mapping.cur_dpt[lvl]
             logger.debug(f"[L{lvl}|D{dpt + 1}] Depth at level {lvl} decreased to {dpt}")
+            
             if not deep:
                 break
+
         return
 
     def push(self, lvl: int) -> None:
@@ -332,7 +344,7 @@ class Streamer:
         """
         if lvl > 0:
             self.separate(lvl - 1)
-        self.prc.mapping.elems[lvl].append([])
+        self.prc.mapping.get_stack(lvl).append([])
         self.prc.mapping.cur_dpt[lvl] += 1
         if self.prc.mapping.cur_dpt[lvl] >= len(self.prc.mapping.cur_breaks[lvl]):
             self.prc.mapping.cur_breaks[lvl].append(0)
