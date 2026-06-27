@@ -3,6 +3,8 @@ from math import log
 from typing import Dict
 from dataclasses import dataclass, field
 
+from scripts.util import digits, concat
+
 
 @dataclass
 class Alphabet:
@@ -23,11 +25,11 @@ class Alphabet:
         useful on different stages of string parsing.
         """
 
-        self.content = self.bases["Content"]
-        self.wildcards = self.bases["Guiding"]["Wildcard"]
-        self.separators = self.bases["Guiding"]["Separator"]
-        self.embedders = self.bases["Guiding"]["Embedder"]
-        self.breakers = self.modifiers["Breaker"]
+        self.content = self.bases["content"]
+        self.wildcards = self.bases["guiding"]["wildcard"]
+        self.separators = self.bases["guiding"]["separator"]
+        self.embedders = self.bases["guiding"]["embedder"]
+        self.breakers = self.modifiers["breaker"]
 
         d = {"Base": self.bases, "Modifier": self.modifiers}
 
@@ -196,10 +198,7 @@ class Stance:
     depth: int = 0
 
     def __repr__(self) -> str:
-        pos = "".join(str(p) for p in self.pos)
-        rep = "".join(str(r) for r in self.rep)
-        depth = self.depth
-        return f"[{pos}|{rep}|{depth}]"
+        return f"[{concat(self.pos)}|{concat(self.rep)}|{self.depth}]"
 
     @staticmethod
     def decode(st: str) -> Stance:
@@ -209,9 +208,9 @@ class Stance:
         stance = Stance()
         data = st.strip("[]").split("|")
         if data and data[0].isdigit():
-            stance.pos = [int(d) for d in data[0]]
+            stance.pos = digits(data[0])
         if len(data) > 1 and data[1].isdigit():
-            stance.rep = [int(d) for d in data[1]]
+            stance.rep = digits(data[1])
         if len(data) > 2 and data[2].isdigit():
             stance.depth = int(data[2])
         return stance
@@ -219,7 +218,7 @@ class Stance:
     @property
     def key(self) -> str:
         """The key of the stance is the binary representation of its position."""
-        return "".join(str(s) for s in self.pos)
+        return concat(self.pos)
 
     def copy(self, lim: int | None = None) -> Stance:
         """Creates a copy of the stance with pos and rep limited from the right
@@ -243,14 +242,14 @@ class Token:
 
     def is_pusher(self, lvl: int) -> bool:
         """Checks if the token acts as a pusher."""
-        base = self.base.aclass == "Embedder"
+        base = self.base.aclass == "embedder"
         level = self.base.level == lvl
         quality = self.base.quality in (None, 0)
         return all((base, level, quality))
 
     def is_popper(self, lvl: int) -> bool:
         """Checks if the token acts as a popper."""
-        base = self.base.aclass == "Embedder"
+        base = self.base.aclass == "embedder"
         level = self.base.level == lvl
         quality = self.base.quality in (None, 1)
         return all((base, level, quality))

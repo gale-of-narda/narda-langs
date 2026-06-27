@@ -1,0 +1,53 @@
+# Special rules
+# Select alphabetic characters that can be part of permissible and neutral elements
+# that go into terminal nodes on the bottom level
+
+# Terminal permissions
+# Define which characters are permissible for each terminal node
+# Shape: 
+# - Depth 1: two to the power of the number of dichotomies on the bottom level
+# - Depth 2: any
+# - Depth 3: any
+# Index correspondence:
+# - Depth 1: node index
+# - Depth 2: embedding depth of the node
+# - Depth 3: compound number of the node
+# Content type: any string, but requires either content characters or their classes
+# in order to work
+tperms:
+- - [wlrfhpk, '']
+  - ['', '']
+- - [V, ayoeuı]
+  - [ayoeuı, '']
+- - [lrmnzsvfȷcxhdtbpđŧgk, lrmn]
+  - [lrmnzsvfȷcxhdtbpđŧgk, '']
+- - [ayoeuı]
+  - [ayoeuı, '']
+- - [lrmnzsvfȷcxhdtbpđŧgk, lrmn]
+  - [lrmnzsvfȷcxhdtbpđŧgk, '']
+- - [V]
+  - [V, '']
+- - [wmnsctŧ, '']
+  - ['', '']
+- - [V, ayoeuı]
+  - [ayoeuı, '']
+
+# Terminal neutrals
+# Define which character is considered neutral for each terminal node
+# As opposed to terminal permissions, neutrals do not depend on compound number
+# Shape: 
+# - Depth 1: two to the power of the number of dichotomies on the bottom level
+# - Depth 2: any
+# Index correspondence:
+# - Depth 1: node index
+# - Depth 2: compound number of the node
+# Content type: any singular content character
+tneuts:
+- [w, '']
+- [ə, '']
+- [w, '']
+- [ə, '']
+- [w, '']
+- [ə, '']
+- [w, '']
+- [u, '']

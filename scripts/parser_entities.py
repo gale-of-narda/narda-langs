@@ -2,6 +2,7 @@ from math import log
 
 from typing import Dict, Tuple, Optional
 
+from scripts.util import binary, digits, concat
 from scripts.parser_dataclasses import Stance, Token, Feature
 
 
@@ -53,7 +54,7 @@ class Mapping:
             if (not preceding and e.stance.pos[: len(num_key)] == num_key) or (
                 preceding and e.stance.pos[: len(num_key)] < num_key
             ):
-                slot = "".join(str(r) for r in e.stance.rep[:d])
+                slot = concat(e.stance.rep[:d])
                 if slot not in matches:
                     matches[slot] = [i]
                 else:
@@ -140,8 +141,7 @@ class Dichotomy:
     @property
     def num_key(self) -> list[int]:
         """Represents the dichotomy key as a list of integers."""
-        num_key = [int(k) for k in self.key]
-        return num_key
+        return digits(self.key)
 
     @property
     def depth(self) -> int:
@@ -187,14 +187,12 @@ class Mask:
     @property
     def key(self) -> str:
         """The key of the mask is the binary representation of its number."""
-        key = f"{self.num:b}".rjust(self.rank, "0")
-        return key
+        return binary(self.num, self.rank)
 
     @property
     def num_key(self) -> list[int]:
         """Represents the dichotomy key as a list of integers."""
-        num_key = [int(k) for k in self.key]
-        return num_key
+        return digits(self.key)
 
     @property
     def active(self) -> bool:
@@ -296,7 +294,7 @@ class Mask:
         # If freeze is True, fitting to the mask is forbidden
         if self.freeze:
             return False
-        if aclass == "Wildcard":
+        if aclass == "wildcard":
             return self.wild
         if ignore_pos:
             by_class = any(aclass in m for lits in self.literals for m in lits)
@@ -360,8 +358,7 @@ class Element:
     @property
     def num(self) -> int:
         """Returns the number represented in the binary form by the stance."""
-        key = "".join(str(s) for s in self.stance.pos)
-        return int(key, 2)
+        return int(concat(self.stance.pos), 2)
 
     @property
     def order(self) -> int:
@@ -474,13 +471,13 @@ class Tree:
         # Creating children of the current node
         for sibnum in range(0, sibs):
             ch = Node(r + 1)
-            ch.key = node.key + f"{sibnum:b}".rjust(int(log(sibs, 2)), "0")
+            ch.key = node.key + binary(sibnum, int(log(sibs, 2)))
             ch.sibnum = sibnum
             ch.ranknum = int(ch.key, 2)
             ch.num = ch.ranknum + ranks
             ch.terminal = r + 1 == len(self.struct)
             ch._stance = Stance(
-                pos=[int(k) for k in ch.key],
+                pos=digits(ch.key),
                 rep=[0] * len(ch.key),
                 depth=self._depth,
             )
@@ -606,7 +603,7 @@ class Tree:
         if stance is None:
             stance = Stance()
         cursor, node, out = 0, self.root, [self.root]
-        pos, comps = "".join(str(s) for s in stance.pos), stance.rep
+        pos, comps = concat(stance.pos), stance.rep
         struct_sums = [sum(self.struct[: i + 1]) for i, s in enumerate(self.struct)]
         struct_to_loop = [s for s in struct_sums if s <= len(pos)]
         for s in struct_to_loop:

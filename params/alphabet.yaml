@@ -1,0 +1,43 @@
+# Alphabet
+# The characters of which language elements can be comprised
+
+# Bases
+# Characters that are either semantically loaded or guide embedding or compounding
+bases:
+  # Content characters carry semantic load and come in classes
+  # The number of classes and their compositions are arbitrary
+  content:
+    C: ['wlrmnzsvfȷcxhdtbpđŧgk']
+    V: ['əayoeuı']
+  # Guiding characters are not intrinsically meaningful
+  # Each group must have the length equal to the number of language levels
+  # Each group member must be either a singular character or a list of them
+  guiding:
+    # Wildcards match to any number of continuous nodes that permit them
+    wildcard: ['#', '@', '']
+    # Separators are placed between compounds
+    separator: [' ', '.', '']
+    # Embedders surround embedded elements
+    # Each member of this group is a pair of opening and closing characters
+    embedder:
+    - ['-', '-']
+    - [':', ';']
+    - ['', '']
+
+# Modifiers
+# Helper characters that participate in mask matching
+# Each group must have the length equal to the number of language levels
+# Each group member must be a singular character
+modifiers:
+  # Breakers force skip a number of masks equal to their index
+  breaker:
+    V:
+    - ['̀', '́̄']
+    - []
+    - []
+
+# Substitutions
+# Pairings of type (char to be replaced by the tokenizer, string to replace with)
+# Only singular characters can be replaced in this way
+# Does not account for the decomposition of combined characters that is always performed
+substitutions: {̂: ̈́, ̌: ̈̀, ̃: ̈̄, '''': ə, '>': '-', <: '-', '`': -ə, –: --, ',': ':', '?': ., '!': .}

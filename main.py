@@ -1,3 +1,4 @@
+import json
 import shlex
 import typer
 import logging
@@ -7,7 +8,7 @@ from typing import Annotated
 from rich.console import Console
 from rich.logging import RichHandler
 
-from scripts.parser_procedure import Processor
+from scripts.parser_procedure import Processor, StructureError
 
 
 class ExitException(Exception):
@@ -27,12 +28,76 @@ logging.basicConfig(
 
 
 @cli.command()
-def parse(text: str, verbose: bool = typer.Option(False, "--verbose", "-v")):
-    res = processor.process(text, verbose=verbose)
+def parse(
+    text: str,
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+    level: Annotated[
+        int | None,
+        typer.Option("--level", "-l", help="Max level to parse (default: all)."),
+    ] = None,
+):
+    old_level = processor.max_level
+    if level is not None:
+        processor.max_level = level
+    try:
+        res = processor.process(text, verbose=verbose)
+    finally:
+        processor.max_level = old_level
     success = f"[bold green]String '{text}' is grammatical[/bold green]"
     fail = f"[bold red]String '{text}' is not grammatical[/bold red]"
     res_string = success if res else fail
     console.print(res_string)
+    return
+
+
+@cli.command()
+def reload():
+    """Reloads all parameters from the standard destination."""
+    processor.loader.reload()
+    console.print("[green]Reloaded all parameters.[/green]")
+    return
+
+
+@cli.command()
+def load(path: Annotated[str, typer.Argument(help="Directory or parameter file.")]):
+    """Loads parameters from a path (a directory, or a single standard file)."""
+    try:
+        loaded = processor.loader.load(path)
+        console.print(f"[green]Loaded {loaded}.[/green]")
+    except (StructureError, ValueError, FileNotFoundError, json.JSONDecodeError) as e:
+        console.print(f"[bold red]Error:[/] {e}")
+    return
+
+
+@cli.command()
+def set(name: str, value: str):
+    """Sets a parameter to a value (parsed as JSON when possible)."""
+    try:
+        processor.loader.set(name, value)
+        console.print(f"[green]Set '{name}'.[/green]")
+    except (StructureError, ValueError, KeyError, TypeError, IndexError) as e:
+        console.print(f"[bold red]Error:[/] {e}")
+    return
+
+
+@cli.command()
+def reset(name: str):
+    """Reloads a single parameter from its standard destination file."""
+    try:
+        processor.loader.reset(name)
+        console.print(f"[green]Reset '{name}'.[/green]")
+    except (StructureError, ValueError, FileNotFoundError, json.JSONDecodeError) as e:
+        console.print(f"[bold red]Error:[/] {e}")
+    return
+
+
+@cli.command()
+def get(name: str):
+    """Prints the current value of a parameter."""
+    try:
+        console.print_json(data=processor.loader.get(name))
+    except ValueError as e:
+        console.print(f"[bold red]Error:[/] {e}")
     return
 
 

@@ -1,7 +1,6 @@
 import os
-import sys
 import csv
-import json
+import copy
 
 import logging
 import unicodedata
@@ -9,6 +8,7 @@ import unicodedata
 from typing import Tuple, Optional, Generator, Dict
 from pathlib import Path
 
+from scripts.util import parse_value, resource_path, read_yaml, concat
 from scripts.parser_entities import Mapping, Dichotomy, Tree, Mask, Element
 from scripts.parser_dataclasses import Alphabet, GeneralRules, SpecialRules
 from scripts.parser_dataclasses import Dialect, Feature, Stance, Token, Symbol
@@ -26,29 +26,84 @@ class ParsingFailure(Exception):
         return
 
 
+class StructureError(Exception):
+    """Raised when a parameter fails schema validation. A shape problem means the
+    parameter's structure is incongruent with the rest of the parametrization; a
+    type problem means its content type is wrong. A failure to parse the YAML
+    itself raises a plain ValueError instead.
+    """
+
+    _SOURCES = {
+        "rules_general": "general rules",
+        "rules_special": "special rules",
+        "alphabet": "alphabet",
+        "dialect": "dialect",
+    }
+
+    @classmethod
+    def shape(cls, param: str, source: str, problem: str) -> "StructureError":
+        """Builds an error for a structural (shape) problem."""
+        return cls(
+            f"Incongruent parametrization: {param} from "
+            f"{cls._SOURCES.get(source, source)} {problem}"
+        )
+
+    @classmethod
+    def wrong_type(cls, param: str, source: str, problem: str) -> "StructureError":
+        """Builds an error for a content-type problem."""
+        return cls(
+            f"Wrong parameter type: parameter {param} from "
+            f"{cls._SOURCES.get(source, source)} {problem}"
+        )
+
+
+def _is_int_list(value) -> bool:
+    """True if value is a list of integers (booleans excluded)."""
+    return isinstance(value, list) and all(
+        isinstance(x, int) and not isinstance(x, bool) for x in value
+    )
+
+
+def _lemb_rank_sizes(struct_level: list[int]) -> list[int]:
+    """Expected entry counts for each compound-length rank of a structure level:
+    one per node-count level, the k-th holding 2**(dichotomies up to k) entries.
+    Zero-dichotomy ranks add no level, so a degenerate level keeps just the root.
+    """
+    sizes, total = [1], 0
+    for d in struct_level:
+        if d > 0:
+            total += d
+            sizes.append(2**total)
+    return sizes
+
+
 class Processor:
     """Orchestrates all language operations."""
 
     def __init__(self, max_level: int | None = None, path: str = "") -> None:
         self.max_level: int | None = max_level
-        self.path: str = path
-        self._load_params()
+        self.loader: Loader = Loader(self, path)
+        self.loader.reload()
         return
 
-    def _load_params(self) -> None:
-        """Creates the components and loads the alphabet and the rules."""
-        # Loading parameters
-        loader = Loader(self.path)
-        self.alphabet = loader.load_alphabet()
-        self.grules = loader.load_grules()
-        self.srules = loader.load_srules()
-        self.dialect = loader.load_dialect()
+    def _build(self) -> None:
+        """(Re)creates the rule dataclasses and parsing components from the
+        loader's current raw parameters. The loader handles parameter state and
+        rolls back on failure; this method only turns parameters into objects.
+        """
+        params = self.loader.params
+        self.alphabet = self.loader.build_alphabet(params["alphabet"])
+        self.grules = self.loader.build_grules(params["rules_general"])
+        self.srules = self.loader.build_srules(params["rules_special"])
+        self.dialect = self.loader.build_dialect(
+            params["dialect"], self.loader.load_features()
+        )
         self.levels = range(len(self.grules.struct))
-        # Creating components
         self.mapper = Mapper(self)
         self.masker = Masker(self)
         self.interpreter = Interpreter(self)
         self.streamer = Streamer(self)
+        return
 
     def process(self, instr: str, verbose: bool = False) -> bool:
         """Parses the input string and applies the parsing to the trees."""
@@ -94,108 +149,520 @@ class Processor:
 
 
 class Loader:
-    """Loads the alphabet, special and general rules to be transformed into parameters
-    used by the parser.
+    """Owns the raw parameter state: reads the parameter files from disk, lets
+    callers query and modify individual parameters, and builds the alphabet,
+    general and special rules, and dialect dataclasses used by the parser.
+
+    Every mutation rebuilds the owning processor and rolls back on failure, so a
+    malformed parameter never leaves the parser in a broken state.
     """
 
-    def __init__(self, path: str) -> None:
+    # Standard parameter sets mapped to their file names (under PARAM_DIR).
+    _FILES = {
+        "alphabet": "alphabet.yaml",
+        "rules_general": "rules_general.yaml",
+        "rules_special": "rules_special.yaml",
+        "dialect": "dialect.yaml",
+    }
+    PARAM_DIR = "params"
+
+    def __init__(self, prc: "Processor", path: str = "") -> None:
+        self.prc = prc
         self.path = path
+        # Raw parameter data keyed by standard file name; the source of truth
+        # from which the dataclasses and components are (re)built.
+        self.params: dict[str, dict] = {}
         return
 
-    def _get_resource_path(self, relative_path):
-        """Gets the absolute resource path (necessary for PyInstaller)."""
+    def reload(self) -> None:
+        """Loads every parameter from the standard destination and rebuilds."""
+        self.params = self.load_all_raw()
+        self.prc._build()
+        return
+
+    def load(self, path: str) -> str:
+        """Loads parameters from the given path. A directory becomes the new base
+        destination for all parameters; a file replaces only the matching
+        parameter set (its name must be a standard one). Returns a description
+        of what was loaded.
+        """
+        if os.path.isdir(path):
+            self.path = path if path.endswith(("/", "\\")) else path + os.sep
+            self.reload()
+            return f"all parameters from '{path}'"
+        if os.path.isfile(path):
+            name, data = self.read_file(path)
+            self._transact(lambda: self.params.__setitem__(name, data))
+            return f"the '{name}' parameters from '{path}'"
+        raise ValueError(f"No such file or directory: '{path}'")
+
+    # Parameter sets that may only be loaded from a file, never set in place.
+    _LOAD_ONLY = ("alphabet", "dialect")
+
+    def set(self, name: str, value) -> None:
+        """Sets the parameter with the given top-level name to the given value.
+        A string value is parsed as YAML when possible (so numbers, lists and
+        mappings are handled), otherwise kept as a plain string.
+
+        Alphabet and dialect parameters cannot be set; they may only be loaded
+        from a file.
+        """
+        fname, key = self._locate(name)
+        if fname in self._LOAD_ONLY:
+            raise ValueError(
+                f"{fname.capitalize()} parameters cannot be set, "
+                f"only loaded from a file ('{key}')"
+            )
+        self._transact(lambda: self.params[fname].__setitem__(key, parse_value(value)))
+        return
+
+    def reset(self, name: str) -> None:
+        """Reloads the named parameter from its standard destination file."""
+        fname, key = self._locate(name)
+        fresh = self.load_raw(fname)
+        if key not in fresh:
+            raise ValueError(f"'{key}' is not present in the standard '{fname}' file")
+        self._transact(lambda: self.params[fname].__setitem__(key, fresh[key]))
+        return
+
+    def get(self, name: str):
+        """Returns the current value of the named parameter."""
+        fname, key = self._locate(name)
+        return self.params[fname][key]
+
+    def _locate(self, name: str) -> tuple[str, str]:
+        """Finds which standard file holds the named top-level parameter."""
+        for fname, data in self.params.items():
+            if name in data:
+                return fname, name
+        known = sorted(k for d in self.params.values() for k in d)
+        raise ValueError(f"Unknown parameter '{name}'. Known: {', '.join(known)}")
+
+    def _transact(self, mutate) -> None:
+        """Applies a parameter mutation, validates the new shape and rebuilds,
+        rolling the parameters back and re-raising if validation or the build
+        fails.
+        """
+        snapshot = copy.deepcopy(self.params)
         try:
-            base_path = sys._MEIPASS
+            mutate()
+            self._validate()
+            self.prc._build()
         except Exception:
-            base_path = os.path.abspath(".")
-        return os.path.join(base_path, relative_path)
+            self.params = snapshot
+            self.prc._build()
+            raise
+        return
 
-    def _load_json(self, path: str) -> str:
-        """Loads the JSON file at path."""
-        path = Path(self._get_resource_path(self.path + path))
-        try:
-            with path.open("r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError) as e:
-            logger.exception(f"Failed to load parameters from {path}")
-            raise e
-        return data
-
-    def load_alphabet(self) -> Alphabet:
-        """Loads the alphabet and extracts the three classes of characters."""
-        data = self._load_json("params/alphabet.json")
-        alphabet = Alphabet(
-            bases=data["Bases"],
-            modifiers=data["Modifiers"],
-            substitutions=data["Substitutions"],
-        )
-        return alphabet
-
-    def load_grules(self) -> GeneralRules:
-        """Loads the general rules that define the syntax of the language."""
-        data = self._load_json("params/rules_general.json")
-        grules = GeneralRules(
-            struct=data["Structure"],
-            heads=data["Heads"],
-            rets=data["Return restrictions"],
-            skips=data["Skip restrictions"],
-            splits=data["Split-set fits"],
-            perms=data["Permissions"],
-            revs=data["Reversals"],
-            lembs=data["Compound lengths"],
-            dembs=data["Complex depths"],
-            wilds=data["Wildcard slots"],
-        )
-        return grules
-
-    def load_srules(self) -> SpecialRules:
-        """Loads the special rules that set the character permissions
-        for each node of the trees.
+    def _validate(self) -> None:
+        """Validates the shape and content types of every parameter set. Raises
+        StructureError with a descriptive message on the first problem found.
         """
-        data = self._load_json("params/rules_special.json")
-        srules = SpecialRules(
-            tperms=data["Terminal permissions"],
-            tneuts=data["Terminal neutrals"],
-        )
-        return srules
+        # Alphabet before special rules, which read the alphabet's content chars.
+        self._validate_general_rules(self.params["rules_general"])
+        self._validate_alphabet(self.params["alphabet"])
+        self._validate_special_rules(self.params["rules_special"])
+        self._validate_dialect(self.params["dialect"])
+        return
 
-    def load_dialect(self) -> Dialect:
-        """Loads the typed and untyped feature files that contain the descriptions
-        of functions and arguments.
+    def _validate_general_rules(self, gr: dict) -> None:
+        """Checks the general rules against the shape and value types implied by
+        their own structure (see each parameter's description).
         """
-        # Loading the dialect parameters
-        data = self._load_json("params/dialect.json")
-        # Loading the features with functions and arguments
-        tables = {"untyped": [], "typed": []}
-        for t in tables:
-            tbl = f"params/features_{t}.csv"
-            path = Path(self._get_resource_path(self.path + tbl))
-            with path.open("r", encoding="utf-8-sig") as f:
-                reader = csv.DictReader(f, delimiter=";")
-                for line in reader:
-                    new_feature = Feature(
-                        ctype=line["ctype"] if t == "typed" else None,
-                        pos=[int(x) for x in line["pos"]],
-                        rep=[int(x) for x in line["rep"]],
-                        cpos=[int(x) for x in line["cpos"]],
-                        crep=[int(x) for x in line["crep"]],
-                        content_class=line["content_class"],
-                        priority=int(line["priority"]),
-                        index=int(line["index"]),
-                        function_name=line["function_name"],
-                        argument_gloss=line["argument_gloss"],
-                        argument_name=line["argument_name"],
-                        argument_description=line["argument_description"],
+        src = "rules_general"
+        struct = gr["struct"]
+        if not (
+            isinstance(struct, list)
+            and struct
+            and all(isinstance(lv, list) and lv for lv in struct)
+        ):
+            raise StructureError.shape(
+                "struct", src, "must be a non-empty list of non-empty lists"
+            )
+        if not all(
+            isinstance(x, int) and not isinstance(x, bool) and x >= 0
+            for lv in struct
+            for x in lv
+        ):
+            raise StructureError.wrong_type(
+                "struct", src, "must hold only non-negative integers"
+            )
+        levels = len(struct)
+        sums = [sum(lv) for lv in struct]  # total dichotomies (N_i) per level
+
+        def check(name, kind, length_of):
+            param = gr[name]
+            if not (isinstance(param, list) and len(param) == levels):
+                raise StructureError.shape(
+                    name, src, f"must be a list with one entry per level ({levels})"
+                )
+            for i, sub in enumerate(param):
+                if not isinstance(sub, list):
+                    raise StructureError.shape(
+                        name, src, f"must hold a list at level {i}"
                     )
-                    tables[t].append(new_feature)
+                if kind == "int" and not _is_int_list(sub):
+                    raise StructureError.wrong_type(
+                        name, src, f"must hold only integers at level {i}"
+                    )
+                if kind == "str" and not all(isinstance(s, str) for s in sub):
+                    raise StructureError.wrong_type(
+                        name, src, f"must hold only strings at level {i}"
+                    )
+                if length_of is not None and len(sub) != length_of(sums[i]):
+                    raise StructureError.shape(
+                        name,
+                        src,
+                        f"must have {length_of(sums[i])} entries at level {i}, "
+                        f"not {len(sub)}",
+                    )
 
-        dialect = Dialect(
-            ctypes=data["Composition types"],
-            untyped=tables["untyped"],
-            typed=tables["typed"],
+        # Shapes: dichotomy-indexed params hold N entries, node-indexed ones 2**N.
+        check("heads", "int", None)
+        for name in ("rets", "skips", "splits"):
+            check(name, "int", lambda n: n)
+        for name in ("revs", "dembs", "wilds"):
+            check(name, "int", lambda n: 2**n)
+        check("perms", "str", lambda n: 2**n)
+
+        # 'lembs' is rank-indexed: one list per node-count level, the k-th holding
+        # 2**(dichotomies up to rank k) entries (zero-dichotomy ranks collapse).
+        lembs = gr["lembs"]
+        if not (isinstance(lembs, list) and len(lembs) == levels):
+            raise StructureError.shape(
+                "lembs", src, f"must be a list with one entry per level ({levels})"
+            )
+        for i, sub in enumerate(lembs):
+            if not (isinstance(sub, list) and all(isinstance(r, list) for r in sub)):
+                raise StructureError.shape(
+                    "lembs", src, f"must hold a list of rank lists at level {i}"
+                )
+            if not all(_is_int_list(r) for r in sub):
+                raise StructureError.wrong_type(
+                    "lembs", src, f"must hold only integers at level {i}"
+                )
+            want = _lemb_rank_sizes(struct[i])
+            if [len(r) for r in sub] != want:
+                raise StructureError.shape(
+                    "lembs",
+                    src,
+                    f"ranks at level {i} must have lengths {want}, "
+                    f"not {[len(r) for r in sub]}",
+                )
+
+        # Value types, per each parameter's description.
+        def require(names, ok, desc):
+            for name in names:
+                for i, sub in enumerate(gr[name]):
+                    items = [x for r in sub for x in r] if name == "lembs" else sub
+                    for x in items:
+                        if not ok(x):
+                            raise StructureError.wrong_type(
+                                name,
+                                src,
+                                f"must hold only {desc}, but level {i} contains {x}",
+                            )
+
+        require(
+            ("rets", "skips", "splits", "revs", "wilds"),
+            lambda x: x in (0, 1),
+            "0 or 1",
+        )
+        require(("dembs", "lembs"), lambda x: x >= -1, "-1 or non-negative integers")
+        require(("heads",), lambda x: x >= 0, "non-negative integers")
+        return
+
+    def _validate_special_rules(self, sr: dict) -> None:
+        """Checks the terminal permissions and neutrals against the number of
+        terminal slots (2**N_0) and the alphabet's content characters.
+        """
+        src = "rules_special"
+        struct = self.params["rules_general"]["struct"]
+        slots = 2 ** sum(struct[0])
+        content = self.params["alphabet"]["bases"]["content"]
+        chars = {c for group in content.values() for s in group for c in s}
+
+        tperms = sr["tperms"]
+        if not (isinstance(tperms, list) and len(tperms) == slots):
+            raise StructureError.shape(
+                "tperms", src, f"must have {slots} entries (one per terminal node)"
+            )
+        for i, slot in enumerate(tperms):
+            if not (
+                isinstance(slot, list)
+                and all(
+                    isinstance(d, list) and all(isinstance(s, str) for s in d)
+                    for d in slot
+                )
+            ):
+                raise StructureError.shape(
+                    "tperms", src, f"must hold lists of strings at node {i}"
+                )
+
+        tneuts = sr["tneuts"]
+        if not (isinstance(tneuts, list) and len(tneuts) == slots):
+            raise StructureError.shape(
+                "tneuts", src, f"must have {slots} entries (one per terminal node)"
+            )
+        for i, slot in enumerate(tneuts):
+            if not (isinstance(slot, list) and all(isinstance(s, str) for s in slot)):
+                raise StructureError.shape(
+                    "tneuts", src, f"must hold a list of strings at node {i}"
+                )
+            for s in slot:
+                if s != "" and (len(s) != 1 or s not in chars):
+                    raise StructureError.wrong_type(
+                        "tneuts",
+                        src,
+                        f"must hold empty or single content characters, "
+                        f"but node {i} has {s!r}",
+                    )
+        return
+
+    def _validate_alphabet(self, al: dict) -> None:
+        """Checks the alphabet's bases, modifiers and substitutions structure.
+        Guiding and modifier groups carry one member per language level.
+        """
+        src = "alphabet"
+        levels = len(self.params["rules_general"]["struct"])
+
+        def is_member(m):  # a single string, or a list of strings
+            return isinstance(m, str) or (
+                isinstance(m, list) and all(isinstance(x, str) for x in m)
+            )
+
+        def check_groups(groups, param, owner):
+            for name, group in groups.items():
+                if not (isinstance(group, list) and len(group) == levels):
+                    raise StructureError.shape(
+                        param,
+                        src,
+                        f"{owner} group '{name}' must have one member per level "
+                        f"({levels})",
+                    )
+                if not all(is_member(m) for m in group):
+                    raise StructureError.wrong_type(
+                        param,
+                        src,
+                        f"{owner} group '{name}' members must be strings or "
+                        f"lists of strings",
+                    )
+
+        bases = al.get("bases")
+        if not (isinstance(bases, dict) and "content" in bases and "guiding" in bases):
+            raise StructureError.shape(
+                "bases", src, "must be a mapping with 'content' and 'guiding'"
+            )
+        content = bases["content"]
+        if not (
+            isinstance(content, dict)
+            and content
+            and all(isinstance(v, list) for v in content.values())
+        ):
+            raise StructureError.shape(
+                "bases", src, "'content' must be a non-empty mapping of class to list"
+            )
+        guiding = bases["guiding"]
+        if not (
+            isinstance(guiding, dict)
+            and all(k in guiding for k in ("wildcard", "separator", "embedder"))
+        ):
+            raise StructureError.shape(
+                "bases", src, "'guiding' must contain wildcard, separator and embedder"
+            )
+        check_groups(guiding, "bases", "guiding")
+
+        modifiers = al.get("modifiers")
+        if not (isinstance(modifiers, dict) and "breaker" in modifiers):
+            raise StructureError.shape(
+                "modifiers", src, "must be a mapping with 'breaker'"
+            )
+        if not isinstance(modifiers["breaker"], dict):
+            raise StructureError.shape(
+                "modifiers", src, "'breaker' must be a mapping of class to list"
+            )
+        check_groups(modifiers["breaker"], "modifiers", "breaker")
+
+        subs = al.get("substitutions")
+        if not isinstance(subs, dict):
+            raise StructureError.shape("substitutions", src, "must be a mapping")
+        if not all(
+            isinstance(k, str) and len(k) == 1 and isinstance(v, str)
+            for k, v in subs.items()
+        ):
+            raise StructureError.wrong_type(
+                "substitutions", src, "must map single characters to strings"
+            )
+        return
+
+    def _validate_dialect(self, di: dict) -> None:
+        """Checks the composition types against the level and rank structure.
+        Each type carries a mandatory 'ranks' restriction (one string per tree
+        rank) and optional non-negative 'cpos'/'crep' vectors.
+        """
+        src = "dialect"
+        struct = self.params["rules_general"]["struct"]
+        levels = len(struct)
+        ctypes = di.get("ctypes")
+        if not (isinstance(ctypes, list) and len(ctypes) == levels):
+            raise StructureError.shape(
+                "ctypes", src, f"must be a list with one entry per level ({levels})"
+            )
+        for i, level in enumerate(ctypes):
+            ranks = len(_lemb_rank_sizes(struct[i]))  # number of tree ranks
+            if not isinstance(level, dict):
+                raise StructureError.shape(
+                    "ctypes", src, f"must map embedding depth to types at level {i}"
+                )
+            for depth, types in level.items():
+                if not isinstance(types, dict):
+                    raise StructureError.shape(
+                        "ctypes",
+                        src,
+                        f"must map type names to definitions at level {i}, "
+                        f"depth {depth!r}",
+                    )
+                for tname, tdef in types.items():
+                    if not (isinstance(tdef, dict) and "ranks" in tdef):
+                        raise StructureError.shape(
+                            "ctypes",
+                            src,
+                            f"type '{tname}' must be a mapping with 'ranks'",
+                        )
+                    rank_perms = tdef["ranks"]
+                    if not isinstance(rank_perms, list):
+                        raise StructureError.shape(
+                            "ctypes", src, f"type '{tname}' 'ranks' must be a list"
+                        )
+                    if not all(isinstance(r, str) for r in rank_perms):
+                        raise StructureError.wrong_type(
+                            "ctypes",
+                            src,
+                            f"type '{tname}' 'ranks' must hold only strings",
+                        )
+                    if len(rank_perms) != ranks:
+                        raise StructureError.shape(
+                            "ctypes",
+                            src,
+                            f"type '{tname}' 'ranks' must have {ranks} entries, "
+                            f"not {len(rank_perms)}",
+                        )
+                    for opt in ("cpos", "crep"):
+                        if opt not in tdef:
+                            continue
+                        vec = tdef[opt]
+                        if not isinstance(vec, list):
+                            raise StructureError.shape(
+                                "ctypes", src, f"type '{tname}' '{opt}' must be a list"
+                            )
+                        if not all(
+                            isinstance(x, int) and not isinstance(x, bool) and x >= 0
+                            for x in vec
+                        ):
+                            raise StructureError.wrong_type(
+                                "ctypes",
+                                src,
+                                f"type '{tname}' '{opt}' must hold only "
+                                f"non-negative integers",
+                            )
+        return
+
+    def load_raw(self, name: str) -> dict:
+        """Loads the raw data of a standard parameter set from the base path."""
+        rel = f"{self.PARAM_DIR}/{self._FILES[name]}"
+        return read_yaml(self.path + rel)
+
+    def load_all_raw(self) -> dict[str, dict]:
+        """Loads the raw data of every standard parameter set."""
+        return {name: self.load_raw(name) for name in self._FILES}
+
+    def read_file(self, path: str) -> tuple[str, dict]:
+        """Loads a single parameter file by an arbitrary path. Its base name
+        must match one of the standard files, otherwise an error is raised.
+        """
+        base = os.path.basename(path)
+        name = next((n for n, f in self._FILES.items() if f == base), None)
+        if name is None:
+            allowed = ", ".join(self._FILES.values())
+            raise ValueError(
+                f"'{base}' is not a standard parameter file "
+                f"(expected one of: {allowed})"
+            )
+        return name, read_yaml(path)
+
+    def load_features(self) -> tuple[list, list]:
+        """Loads the combined features file describing the functions and their
+        arguments. Rows with a content type are typed, the rest untyped; returns
+        the (untyped, typed) feature lists.
+        """
+        untyped, typed = [], []
+        path = Path(resource_path(self.path + f"{self.PARAM_DIR}/features.tsv"))
+        with path.open("r", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f, delimiter="\t")
+            for line in reader:
+                if not line.get("pos"):  # skip blank rows
+                    continue
+                ctype = line["ctype"] or None
+                feature = Feature(
+                    ctype=ctype,
+                    pos=[int(x) for x in line["pos"]],
+                    rep=[int(x) for x in line["rep"]],
+                    cpos=[int(x) for x in line["cpos"]],
+                    crep=[int(x) for x in line["crep"]],
+                    content_class=line["content_class"],
+                    priority=int(line["priority"]),
+                    index=int(line["index"]),
+                    function_name=line["function_name"],
+                    argument_gloss=line["argument_gloss"],
+                    argument_name=line["argument_name"],
+                    argument_description=line["argument_description"],
+                )
+                (typed if ctype else untyped).append(feature)
+        return untyped, typed
+
+    def build_alphabet(self, raw: dict) -> Alphabet:
+        """Builds the alphabet dataclass from raw parameters."""
+        raw = copy.deepcopy(raw)
+        return Alphabet(
+            bases=raw["bases"],
+            modifiers=raw["modifiers"],
+            substitutions=raw["substitutions"],
         )
 
-        return dialect
+    def build_grules(self, raw: dict) -> GeneralRules:
+        """Builds the general rules dataclass from raw parameters. The data is
+        copied first because the dataclass unravels it in place.
+        """
+        raw = copy.deepcopy(raw)
+        return GeneralRules(
+            struct=raw["struct"],
+            heads=raw["heads"],
+            rets=raw["rets"],
+            skips=raw["skips"],
+            splits=raw["splits"],
+            perms=raw["perms"],
+            revs=raw["revs"],
+            lembs=raw["lembs"],
+            dembs=raw["dembs"],
+            wilds=raw["wilds"],
+        )
+
+    def build_srules(self, raw: dict) -> SpecialRules:
+        """Builds the special rules dataclass from raw parameters."""
+        raw = copy.deepcopy(raw)
+        return SpecialRules(
+            tperms=raw["tperms"],
+            tneuts=raw["tneuts"],
+        )
+
+    def build_dialect(self, raw: dict, features: tuple[list, list]) -> Dialect:
+        """Builds the dialect dataclass from raw parameters and feature lists."""
+        untyped, typed = features
+        return Dialect(
+            ctypes=copy.deepcopy(raw["ctypes"]),
+            untyped=untyped,
+            typed=typed,
+        )
 
 
 class Streamer:
@@ -241,7 +708,7 @@ class Streamer:
                     t.modifiers.append(s)
             if s.acat == "Base":
                 t = Token(base=s)
-        if isinstance(t, Token) and s.aclass != "Separator":
+        if isinstance(t, Token) and s.aclass != "separator":
             yield t
 
     def feed(self) -> bool:
@@ -259,9 +726,9 @@ class Streamer:
                 return True
             self.t = t
             lvl = t.base.level
-            if t.base.asubcat == "Guiding":
+            if t.base.asubcat == "guiding":
                 # Separating intervals of elements
-                if t.base.aclass == "Separator":
+                if t.base.aclass == "separator":
                     self.separate(lvl)
                 # Decreasing depth of complex embedding
                 elif t.is_popper(lvl) and self.prc.mapping.cur_dpt[t.base.level] > 0:
@@ -270,7 +737,7 @@ class Streamer:
                 elif t.is_pusher(lvl):
                     self.push(lvl)
             # Parsing content tokens while accounting for early & late breakers
-            if t.base.asubcat == "Content" or t.base.aclass == "Wildcard":
+            if t.base.asubcat == "content" or t.base.aclass == "wildcard":
                 self.account_breaker(late=False)
                 self.e = Element(t, level=0)
                 self.add()
@@ -377,7 +844,7 @@ class Streamer:
         lvl = self.t.base.level
         dpt = self.prc.mapping.cur_dpt[lvl]
         for mod in self.t.modifiers:
-            if mod.asubcat == "Breaker" and mod.quality == int(late):
+            if mod.asubcat == "breaker" and mod.quality == int(late):
                 self.prc.mapping.cur_breaks[lvl][dpt] += mod.index + 1
                 brk = self.prc.mapping.cur_breaks[lvl][dpt]
                 logger.debug(f"[L{lvl}|D{dpt}] Breaker count increased to {brk}")
@@ -840,7 +1307,7 @@ class Mapper:
 
             aclass = e.head.content.base.aclass
             base = str(e.head.content.base)
-            if not any([base in perm or aclass in perm, aclass == "Wildcard"]):
+            if not any([base in perm or aclass in perm, aclass == "wildcard"]):
                 logger.warning(
                     f"-> No permission for '{e.head}'/'{aclass}' at {e.stance}"
                 )
@@ -991,7 +1458,7 @@ class Interpreter:
                 if tree.stance is None or tree.stance.rep != ctypes[ctype]["crep"]:
                     fit = False
             # Every type has conditions for nodes of different ranks
-            for r, rank in enumerate(ctypes[ctype]["Ranks"]):
+            for r, rank in enumerate(ctypes[ctype]["ranks"]):
                 nodes = [n for n in tree.all_nodes if n.rank == r]
                 min_num = min([node.num for node in nodes])
                 # Conditions place limits on the number of nodes in the rank
@@ -1189,7 +1656,7 @@ class Interpreter:
                 sub_gloss = "-".join(g for _, g in sub_tokens)
                 tokens.append((f"[{sub_form}]", f"[{sub_gloss}]"))
             else:
-                form = "".join(str(e) for e in item.content)
+                form = concat(item.content)
                 gloss = (
                     item.feature.argument_gloss
                     if item.feature and item.feature.argument_gloss
