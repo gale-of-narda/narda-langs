@@ -2,7 +2,6 @@
 # Describe the family-specific grammar of the language, including the structure
 # of syntax trees and the rules for mapping elements to masks
 
-
 # Structure
 # Defines the number of dichotomies for each rank within each language level
 # Equivalently, defines the shape of the syntax tree for each level:
@@ -16,9 +15,9 @@
 # - Depth 2: dichotomy rank
 # Content type: any non-negative integer
 struct:
-- [2, 1]
-- [1, 1]
-- [0]
+- [ 2, 1 ]
+- [ 1, 1 ]
+- [ 0 ]
 
 # Heads
 # Define the possible head nodes on each level, ordered by priority
@@ -30,7 +29,7 @@ struct:
 # - Depth 2: node priority
 # Content type: any non-negative integer
 heads:
-- [7]
+- [ 7 ]
 - []
 - []
 
@@ -45,8 +44,8 @@ heads:
 # - Depth 2: dichotomy number within rank
 # Content type: 0 or 1
 rets:
-- [1, 1, 1]
-- [0, 0]
+- [ 1, 1, 1 ]
+- [ 0, 0 ]
 - []
 
 # Skip restrictions
@@ -60,8 +59,8 @@ rets:
 # - Depth 2: dichotomy number within rank
 # Content type: 0 or 1
 skips:
-- [0, 0, 0]
-- [1, 0]
+- [ 0, 0, 0 ]
+- [ 1, 0 ]
 - []
 
 # Split-set fits
@@ -76,8 +75,8 @@ skips:
 # - Depth 2: dichotomy number within rank
 # Content type: 0 or 1
 splits:
-- [0, 0, 1]
-- [0, 0]
+- [ 0, 0, 1 ]
+- [ 0, 0 ]
 - []
 
 # Reversals
@@ -93,9 +92,9 @@ splits:
 # - Depth 2: node index within level
 # Content type: 0 or 1
 revs:
-- [0, 0, 0, 0, 1, 1, 1, 1]
-- [0, 0, 0, 0]
-- [0]
+- [ 0, 0, 0, 0, 1, 1, 1, 1 ]
+- [ 0, 0, 0, 0 ]
+- [ 0 ]
 
 # Complex depths
 # Define the limits on embedding depth for each terminal node
@@ -108,9 +107,9 @@ revs:
 # - Depth 2: node index within level
 # Content type: -1 or any non-negative integer
 dembs:
-- [1, 1, 0, 0, 0, 0, 1, 1]
-- [-1, -1, -1, -1]
-- [0]
+- [ 1, 1, 0, 0, 0, 0, 1, 1 ]
+- [ -1, -1, -1, -1 ]
+- [ 0 ]
 
 # Wildcard slots
 # Define whether terminal nodes permit wildcards (1) or not (0)
@@ -123,9 +122,9 @@ dembs:
 # - Depth 2: node index within level
 # Content type: 0 or 1
 wilds:
-- [0, 0, 1, 1, 1, 1, 0, 0]
-- [1, 0, 0, 0]
-- [0]
+- [ 0, 0, 1, 1, 1, 1, 0, 0 ]
+- [ 1, 0, 0, 0 ]
+- [ 0 ]
 
 # Permissions
 # Define content characters and/or their classes that comprise masks
@@ -144,9 +143,9 @@ wilds:
 # - '()' mark characters within as variants occupying the same position
 # Specical characters only matter in positional matching
 perms:
-- ['?C', 'V', 'C', 'V', 'C', '?V', 'C', '!V']
-- ['!(ao)', '?e', '(yu)', '?ı']
-- ['V']
+- [ '?C', 'V', 'C', 'V', 'C', '?V', 'C', '!V' ]
+- [ '!(ao)', '?e', '(yu)', '?ı' ]
+- [ 'V' ]
 
 # Compound lengths
 # Define the limits on the number of compounds for each terminal node
@@ -161,10 +160,10 @@ perms:
 # - Depth 3: node index within rank
 # Content type: -1 or any non-negative integer
 lembs:
-- - [0]
-  - [0, 1, 1, 0]
-  - [1, 1, 1, 0, 1, 0, 1, 1]
-- - [0]
-  - [-1, -1]
-  - [-1, -1, -1, -1]
-- - [0]
+- - [ 0 ]
+  - [ 0, 1, 1, 0 ]
+  - [ 1, 1, 1, 0, 1, 0, 1, 1 ]
+- - [ 0 ]
+  - [ -1, -1 ]
+  - [ -1, -1, -1, -1 ]
+- - [ 0 ]

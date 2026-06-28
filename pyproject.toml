@@ -7,6 +7,7 @@ requires-python = ">=3.14"
 dependencies = [
     "pyyaml>=6.0",
     "rich>=14.3.2",
+    "ty-extensions>=0.1.0",
     "typer[all]>=0.24.0",
 ]
 
@@ -19,4 +20,10 @@ dev = [
     "ty>=0.0.1a31",
     "mkdocs-material>=9.7.6",
     "mkdocstrings[python]>=1.0.4",
+    "ruff>=0.15.20",
 ]
+
+[tool.ruff]
+line-length = 88
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ANN"]

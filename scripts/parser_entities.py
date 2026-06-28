@@ -1,9 +1,7 @@
 from math import log
 
-from typing import Dict, Tuple, Optional
-
-from scripts.util import binary, digits, concat
-from scripts.parser_dataclasses import Stance, Token, Feature
+from scripts.parser_dataclasses import Feature, Stance, Token
+from scripts.util import binary, concat, digits
 
 
 class Mapping:
@@ -11,13 +9,13 @@ class Mapping:
     involved in parsing.
     """
 
-    def __init__(self, levels: range):
-        self.cur_breaks = [[0] for lvl in levels]
-        self.cur_dpt = [0 for lvl in levels]
-        self.cur_bdr = [0 for lvl in levels]
-        self.elems = [[] for lvl in levels]
+    def __init__(self, levels: range) -> None:
+        self.cur_breaks = [[0] for _ in levels]
+        self.cur_dpt = [0 for _ in levels]
+        self.cur_bdr = [0 for _ in levels]
+        self.elems = [[] for _ in levels]
 
-    def get_interval(self, lvl: int) -> list[Element]:
+    def get_interval(self, lvl: int) -> list:
         """Returns the interval on the given level consisting of elements
         that are yet to be wrapped into an element of the higher level.
         """
@@ -31,7 +29,7 @@ class Mapping:
         self.cur_bdr[lvl] = len(self.elems[lvl])
         return
 
-    def get_stack(self, lvl: int = -1, interval: bool = False) -> list[Element]:
+    def get_stack(self, lvl: int = -1, interval: bool = False) -> list:
         """Returns the list of elements at the given level
         to which the next element should be appended.
         """
@@ -42,7 +40,7 @@ class Mapping:
 
     def enumerate_elems(
         self, num_key: list[int], elems: list[Element], d: int, preceding: bool = False
-    ) -> Dict[str, list[int]]:
+    ) -> dict[str, list[int]]:
         """Returns a list of indices of the given list of elements that conform
         to the given key, arranging them into a dict of lists where the keys are
         the reps before d.
@@ -72,11 +70,15 @@ class Dichotomy:
         self.d: int = d
         self.nb: bool = nb
         self.terminal: bool = False
-        self.rev: Optional[bool] = None
-        self.ret: Optional[bool] = None
-        self.skip: Optional[bool] = None
-        self.split: Optional[bool] = None
-        self._pointer: Optional[int] = None
+        self.rev: bool = False
+        self.ret: bool = False
+        self.skip: bool = False
+        self.split: bool = False
+        self._pointer: int | None = None
+        self.masks: tuple[Mask]
+        self.left: Mask
+        self.right: Mask
+        self.key: list[str]
         return
 
     def __repr__(self) -> str:
@@ -94,7 +96,7 @@ class Dichotomy:
             return []
 
     @property
-    def pointer(self) -> Optional[int]:
+    def pointer(self) -> int | None:
         """Returns the number of mask was fitted last (possibly None)."""
         return self._pointer
 
@@ -125,7 +127,7 @@ class Dichotomy:
         return
 
     @property
-    def key(self) -> Optional[str]:
+    def key(self) -> str | None:
         """The key of the dichotomy is the common left substring of the keys
         of its masks.
         """
@@ -141,7 +143,7 @@ class Dichotomy:
     @property
     def num_key(self) -> list[int]:
         """Represents the dichotomy key as a list of integers."""
-        return digits(self.key)
+        return digits(self.key or "")
 
     @property
     def depth(self) -> int:
@@ -163,14 +165,14 @@ class Mask:
     ) -> None:
         self.literals, self.optionals, self.necessities = self._decode(premask)
         self.rank, self.num, self.depth = rank, num, depth
-        self.tneuts = None
-        self.rev = None
-        self.lemb = None
-        self.demb = None
-        self.wild = None
-        self.pos = None
-        self.rep = 0
-        self.freeze = False
+        self.tneuts: list | None = None
+        self.rev: int = 0
+        self.lemb: int = 0
+        self.demb: int = 0
+        self.pos: int | None = None
+        self.rep: int = 0
+        self.wild: bool = False
+        self.freeze: bool = False
         return
 
     def __repr__(self) -> str:
@@ -199,7 +201,7 @@ class Mask:
         """A mask is active if its current position is not None."""
         return self.pos is not None
 
-    def _decode(self, premask: str) -> Tuple[list[list[str]], list[bool]]:
+    def _decode(self, premask: str) -> tuple[list[list[str]], list[bool], list[bool]]:
         """Decodes the terminal permissions defined in the general rules
         to transform them into masks.
         """
@@ -236,7 +238,7 @@ class Mask:
         e: Element,
         split: bool,
         force_mov: bool = False,
-    ) -> Optional[Tuple[int, int]]:
+    ) -> tuple[int | None, int] | None:
         """Produces the movement for the mask required to fit the element
         with its current stance. If no fit is possible, return None.
         """
@@ -274,7 +276,7 @@ class Mask:
 
         return None
 
-    def move(self, step: int) -> Optional[Tuple[int, int]]:
+    def move(self, step: int) -> tuple[int, int]:
         """Changes the position of the cursor in the mask for the given number
         of steps forward. Loops back and increases the repetition counter
         if the mask is cyclical.
@@ -290,7 +292,7 @@ class Mask:
     def match(self, e: Element, pos: int = 0, ignore_pos: bool = False) -> bool:
         """Checks if the given string fits the element at the given position."""
         head = e.preheader.get_matching_head(e.stance.depth)
-        aclass, lit = head.content.base.aclass, head.content.lit
+        aclass, lit = head.tok.base.aclass, head.tok.lit
         # If freeze is True, fitting to the mask is forbidden
         if self.freeze:
             return False
@@ -321,15 +323,22 @@ class Element:
 
     def __init__(
         self,
-        content: Token | list[Token],
-        stance: Optional[Stance] = None,
+        content: Token | list[Element],
+        stance: Stance | None = None,
         level: int = 0,
     ) -> None:
-        self.content: Token | list[Token] | Element | list[Element] = content
-        self.stance: Stance | None = stance
+        # A molar element wraps a single token; a composite holds child elements.
+        if isinstance(content, Token):
+            self.token: Token | None = content
+            self.content: list[Element] = []
+            self.molar: bool = True
+        else:
+            self.token = None
+            self.content = content
+            self.molar = False
         self.level: int = level
-        self.molar: bool = not isinstance(self.content, list)
         self.heads: list[Element] = []
+        self.stance: Stance = stance or Stance()
         return
 
     def __repr__(self) -> str:
@@ -342,7 +351,7 @@ class Element:
         if depth is None:
             depth = self.stance.depth if self.stance else 0
         if self.molar:
-            return str(self.content)
+            return str(self.tok)
         else:
             out = ""
             for c in self.content:
@@ -363,7 +372,7 @@ class Element:
     @property
     def order(self) -> int:
         """The order of the element is that of its head's content token."""
-        return self.head.content.order
+        return self.head.tok.order
 
     @property
     def head(self) -> Element:
@@ -371,6 +380,15 @@ class Element:
         itself if no heads are set.
         """
         return self if not self.heads else self.heads[0]
+
+    @property
+    def tok(self) -> Token:
+        """The token of a molar element. The head, header and matching-head
+        leaves are always molar, so this is the token-carrying counterpart to
+        ``content`` (which now only ever holds child elements).
+        """
+        assert self.token is not None, f"Expected a molar element, got {self!r}"
+        return self.token
 
     @property
     def header(self) -> Element:
@@ -457,7 +475,7 @@ class Tree:
         tokens = []
         comps = [e for c in self.root.compounds for e in c.content]
         for e in self.root.content + comps:
-            tokens.append(e.head.content)
+            tokens.append(e.head.tok)
         return "".join([str(g) for g in tokens])
 
     def _populate(self, node: Node) -> None:
@@ -490,12 +508,25 @@ class Tree:
                 self._populate(ch)
         return
 
-    def _get_subtree(self, target: Optional[int] = None) -> Tree | Node:
-        """Creates a structural copy of the tree and returns either that copy
-        or its node of the given number.
+    def get_nodes(self, stance: Stance | None = None) -> list[Node]:
+        """Returns the node addressed by the given stance as well as
+        its ancestors.
         """
-        subtree = Tree(self.struct, self.level)
-        return subtree if target is None else subtree.nodes[target]
+        if stance is None:
+            stance = Stance()
+        cursor, node, out = 0, self.root, [self.root]
+        pos, comps = concat(stance.pos), stance.rep
+        struct_sums = [sum(self.struct[: i + 1]) for i, s in enumerate(self.struct)]
+        struct_to_loop = [s for s in struct_sums if s <= len(pos)]
+        for s in struct_to_loop:
+            if node.children:
+                node = node.children[int(pos[cursor : cursor + s] or "0", 2)]
+                comp = comps[cursor : cursor + s][-1]
+                if comp > 0:
+                    node = node.compounds[comp - 1]
+                cursor += s
+                out.append(node)
+        return out
 
     @property
     def depth(self) -> int:
@@ -526,7 +557,7 @@ class Tree:
 
     def draw(
         self,
-        node: Optional[Node] = None,
+        node: Node | None = None,
         depth: int = 0,
         header: str = "└",
         top: bool = False,
@@ -574,7 +605,7 @@ class Tree:
         """Adds a copy of the subtree originating from the node of the given number
         to the mapped compounds list of the node.
         """
-        new_node: Node = self._get_subtree(node.num)
+        new_node = Tree(self.struct, self.level).nodes[node.num]
         d = len(new_node.key) - 1
         new_stance = Stance(
             new_node.stance.pos, new_node.stance.rep, new_node.stance.depth
@@ -588,33 +619,11 @@ class Tree:
         """Adds a copy of the subtree originating from the root of the tree
         to the mapped complexes list of the node.
         """
-        new_tree: Tree = self._get_subtree()
+        new_tree = Tree(self.struct, self.level)
         new_tree.depth = self.depth + 1
         new_tree.stance = node.stance
         node.complexes.append(new_tree)
         return
-
-    def get_nodes(
-        self, stance: Optional[Stance] = None, upstream: bool = False
-    ) -> list[Node] | Node:
-        """Returns the node addressed by the given stance.
-        If upstream = True, also returns its ancestors.
-        """
-        if stance is None:
-            stance = Stance()
-        cursor, node, out = 0, self.root, [self.root]
-        pos, comps = concat(stance.pos), stance.rep
-        struct_sums = [sum(self.struct[: i + 1]) for i, s in enumerate(self.struct)]
-        struct_to_loop = [s for s in struct_sums if s <= len(pos)]
-        for s in struct_to_loop:
-            if node.children:
-                node = node.children[int(pos[cursor : cursor + s] or "0", 2)]
-                comp = comps[cursor : cursor + s][-1]
-                if comp > 0:
-                    node = node.compounds[comp - 1]
-                cursor += s
-                out.append(node)
-        return out if upstream else out[-1]
 
     def get_interpretable_nodes(self, complexes: bool = False) -> list[Node]:
         """Returns terminal nodes with content. If complexes is True,
@@ -631,25 +640,22 @@ class Tree:
             for node in sorted_nodes:
                 for c in node.complexes:
                     embeds = c.get_interpretable_nodes(complexes=True)
-                    out.insert(ind, embeds)
+                    out[ind:ind] = embeds
                     ind += 1
                 ind += 1
 
         return out
 
-    def set_element(self, e: Element, set_all: bool = True) -> None:
-        """Maps the element to the node addressed by its stance.
-        If set_all is True, also maps it continuously to parent nodes
-        all the way up to the root.
+    def set_element(self, e: Element) -> None:
+        """Maps the element to the node addressed by its stance as well as
+        to parent nodes all the way up to the root.
         """
-        node = self.get_nodes(e.stance)
-        if set_all:
-            cursor = 0
-            struct = [0] + self.struct[: len(e.stance.pos)]
-            for s in struct[: len(e.stance.pos) + 1]:
-                node = self.get_nodes(e.stance.copy(cursor + s))
-                node.map_element(e)
-                cursor += s
+        cursor = 0
+        struct = [0] + self.struct[: len(e.stance.pos)]
+        for s in struct[: len(e.stance.pos) + 1]:
+            node = self.get_nodes(e.stance.copy(cursor + s))[-1]
+            node.map_element(e)
+            cursor += s
         return
 
 
@@ -664,7 +670,7 @@ class Node:
 
     def __init__(self, rank: int = 0) -> None:
         self.rank: int = rank
-        self.key: str = str()
+        self.key: str = ""
         self.num: int = 0
         self.ranknum: int = 0
         self.sibnum: int = 0
@@ -675,7 +681,7 @@ class Node:
         self.compounds: list[Node] = []
         self.complexes: list[Tree] = []
         self.content: list[Element] = []
-        self.feature: Feature | None = None
+        self.feature: Feature
         return
 
     def __repr__(self) -> str:

@@ -1,7 +1,7 @@
 import json
-import pytest
-
 from pathlib import Path
+
+import pytest
 
 from scripts.parser_procedure import Processor
 
@@ -19,7 +19,7 @@ good_words = [tuple([i[0], i[1]]) for i in tests["Words"]["good"]]
 
 
 @pytest.mark.parametrize("good_string, mapping_0, mapping_1", good_statements)
-def test_good_statements(good_string, mapping_0, mapping_1):
+def test_good_statements(good_string: str, mapping_0: str, mapping_1: str) -> None:
     assert prc_statements.process(good_string)
     stances_0 = [str(stance) for stance in prc_statements.get_stances(lvl=0)]
     stances_1 = [str(stance) for stance in prc_statements.get_stances(lvl=1)]
@@ -27,29 +27,29 @@ def test_good_statements(good_string, mapping_0, mapping_1):
 
 
 @pytest.mark.parametrize("bad_string", tests["Statements"]["bad"])
-def test_bad_statements(bad_string):
+def test_bad_statements(bad_string: str) -> None:
     assert not prc_statements.process(bad_string)
 
 
 @pytest.mark.parametrize("good_string, mapping", good_sentences)
-def test_good_sentences(good_string, mapping):
+def test_good_sentences(good_string: str, mapping: str) -> None:
     assert prc_sentences.process(good_string)
     stances = [str(stance) for stance in prc_sentences.get_stances(lvl=1)]
     assert stances == mapping
 
 
 @pytest.mark.parametrize("bad_string", tests["Sentences"]["bad"])
-def test_bad_sentences(bad_string):
+def test_bad_sentences(bad_string: str) -> None:
     assert not prc_sentences.process(bad_string)
 
 
 @pytest.mark.parametrize("good_string, mapping", good_words)
-def test_good_words(good_string, mapping):
+def test_good_words(good_string: str, mapping: str) -> None:
     assert prc_words.process(good_string)
     stances = [str(stance) for stance in prc_words.get_stances(lvl=0)]
     assert stances == mapping
 
 
 @pytest.mark.parametrize("bad_string", tests["Words"]["bad"])
-def test_bad_words(bad_string):
+def test_bad_words(bad_string: str) -> None:
     assert not prc_words.process(bad_string)

@@ -15,22 +15,22 @@
 # Content type: any string, but requires either content characters or their classes
 # in order to work
 tperms:
-- - [wlrfhpk, '']
-  - ['', '']
-- - [V, ayoeuı]
-  - [ayoeuı, '']
-- - [lrmnzsvfȷcxhdtbpđŧgk, lrmn]
-  - [lrmnzsvfȷcxhdtbpđŧgk, '']
-- - [ayoeuı]
-  - [ayoeuı, '']
-- - [lrmnzsvfȷcxhdtbpđŧgk, lrmn]
-  - [lrmnzsvfȷcxhdtbpđŧgk, '']
-- - [V]
-  - [V, '']
-- - [wmnsctŧ, '']
-  - ['', '']
-- - [V, ayoeuı]
-  - [ayoeuı, '']
+- - [ wlrfhpk, '' ]
+  - [ '', '' ]
+- - [ V, ayoeuı ]
+  - [ ayoeuı, '' ]
+- - [ lrmnzsvfȷcxhdtbpđŧgk, lrmn ]
+  - [ lrmnzsvfȷcxhdtbpđŧgk, '' ]
+- - [ ayoeuı ]
+  - [ ayoeuı, '' ]
+- - [ lrmnzsvfȷcxhdtbpđŧgk, lrmn ]
+  - [ lrmnzsvfȷcxhdtbpđŧgk, '' ]
+- - [ V ]
+  - [ V, '' ]
+- - [ wmnsctŧ, '' ]
+  - [ '', '' ]
+- - [ V, ayoeuı ]
+  - [ ayoeuı, '' ]
 
 # Terminal neutrals
 # Define which character is considered neutral for each terminal node
@@ -43,11 +43,11 @@ tperms:
 # - Depth 2: compound number of the node
 # Content type: any singular content character
 tneuts:
-- [w, '']
-- [ə, '']
-- [w, '']
-- [ə, '']
-- [w, '']
-- [ə, '']
-- [w, '']
-- [u, '']
+- [ w, '' ]
+- [ ə, '' ]
+- [ w, '' ]
+- [ ə, '' ]
+- [ w, '' ]
+- [ ə, '' ]
+- [ w, '' ]
+- [ u, '' ]

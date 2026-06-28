@@ -1,9 +1,8 @@
-from math import log
-
-from typing import Dict
 from dataclasses import dataclass, field
+from math import log
+from typing import cast
 
-from scripts.util import digits, concat
+from scripts.util import concat, digits
 
 
 @dataclass
@@ -12,9 +11,9 @@ class Alphabet:
     Has functions for removing non-alphabetic and representing alphabetic characters.
     """
 
-    bases: Dict[str, Dict]
-    modifiers: Dict[str, Dict[str, list[str]]]
-    substitutions: Dict[str, str]
+    bases: dict[str, dict]
+    modifiers: dict
+    substitutions: dict[str, str]
 
     def __post_init__(self) -> None:
         self._build_dicts()
@@ -30,15 +29,21 @@ class Alphabet:
         self.separators = self.bases["guiding"]["separator"]
         self.embedders = self.bases["guiding"]["embedder"]
         self.breakers = self.modifiers["breaker"]
+        self.swappers = self.modifiers.get("swapper", [])
 
-        d = {"Base": self.bases, "Modifier": self.modifiers}
+        # Groups that follow the level/quality/index layout: every base group
+        # and the breaker modifiers. Swappers carry their own shape and are
+        # indexed separately below.
+        d = {"Base": self.bases, "Modifier": {"breaker": self.breakers}}
 
         # Creating a flat dictionary of characters with all parameters encoded
         self.lookup = {}
         for cat in d:
             for subcat in d[cat]:
                 for aclass in d[cat][subcat]:
-                    for level, values in enumerate(d[cat][subcat][aclass]):
+                    # A level entry is a string or a list of per-quality strings.
+                    group = cast("list[str | list[str]]", d[cat][subcat][aclass])
+                    for level, values in enumerate(group):
                         if isinstance(values, list):
                             for q, vals in enumerate(values):
                                 for i, val in enumerate(vals):
@@ -61,6 +66,20 @@ class Alphabet:
                                     "Index": i,
                                 }
 
+        # Swappers pair single characters from two content classes; each pair
+        # member is indexed under its own class so it attaches to that content.
+        for p, pair in enumerate(self.swappers):
+            for q, mapping in enumerate(pair):
+                for aclass, char in mapping.items():
+                    self.lookup[char] = {
+                        "Category": "Modifier",
+                        "Subcategory": "swapper",
+                        "Class": aclass,
+                        "Level": 0,
+                        "Quality": None if char in self.lookup else q,
+                        "Index": p,
+                    }
+
         return
 
     def get_token(self, st: str) -> Token:
@@ -68,7 +87,8 @@ class Alphabet:
         if st in [
             k for k in self.lookup.keys() if self.lookup[k]["Category"] == "Base"
         ]:
-            s = Symbol(st, *self.lookup[st].values())
+            # ty cannot check a splat of dynamically-typed lookup values
+            s = Symbol(st, *self.lookup[st].values())  # ty: ignore[invalid-argument-type]
             g = Token(base=s)
             return g
         raise ValueError(f"Tried to get a token with the illegal character {st}")
@@ -80,16 +100,16 @@ class GeneralRules:
     of elements to masks in relation to dichotomies.
     """
 
-    struct: list[list[int]]
-    heads: list[list[int]]
-    rets: list[list[int]]
-    skips: list[list[int]]
-    splits: list[list[int]]
-    revs: list[list[int]]
-    dembs: list[list[int]]
-    perms: list[list[str]]
-    lembs: list[list[list[int]]]
-    wilds: list[list[list[int]]]
+    struct: list
+    heads: list
+    rets: list
+    skips: list
+    splits: list
+    revs: list
+    dembs: list
+    perms: list
+    lembs: list
+    wilds: list
 
     def __post_init__(self) -> None:
         self._unravel_term_params()
@@ -99,7 +119,7 @@ class GeneralRules:
         """Transforms perms, revs, dembs, and wilds for each mask
         based on the general rules where they are defined in a more compact form.
         """
-        for lv, s in enumerate(self.struct):
+        for lv in range(len(self.struct)):
             self.perms[lv] = [self.perms[lv]]
             self.revs[lv] = [self.revs[lv]]
             self.dembs[lv] = [self.dembs[lv]]
@@ -136,7 +156,8 @@ class SpecialRules:
 class Dialect:
     """A holder for the parameters that guide the interpretation of node features."""
 
-    ctypes: list[Dict[str, str]]
+    ctypes: list
+    ptypes: list
     untyped: list[Feature]
     typed: list[Feature]
 
@@ -254,9 +275,6 @@ class Token:
         quality = self.base.quality in (None, 1)
         return all((base, level, quality))
 
-    def is_wild(self, lv: int = 0) -> bool:
-        return False
-
     @property
     def content(self) -> str:
         """How the token appears in writing."""
@@ -279,10 +297,10 @@ class Token:
 class Symbol:
     """A holder for elementary etic units of the language."""
 
-    content: str = str()
-    acat: str = str()
-    asubcat: str = str()
-    aclass: str = str()
+    content: str = ""
+    acat: str = ""
+    asubcat: str = ""
+    aclass: str = ""
     level: int = 0
     quality: int = 0
     index: int = 0

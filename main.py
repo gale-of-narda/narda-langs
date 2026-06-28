@@ -1,10 +1,9 @@
 import json
-import shlex
-import typer
 import logging
-
+import shlex
 from typing import Annotated
 
+import typer
 from rich.console import Console
 from rich.logging import RichHandler
 
@@ -17,7 +16,7 @@ class ExitException(Exception):
 
 cli = typer.Typer(add_completion=False)
 console = Console(force_terminal=True)
-processor: Processor = None
+processor: Processor
 
 logging.basicConfig(
     level="DEBUG",
@@ -35,7 +34,7 @@ def parse(
         int | None,
         typer.Option("--level", "-l", help="Max level to parse (default: all)."),
     ] = None,
-):
+) -> None:
     old_level = processor.max_level
     if level is not None:
         processor.max_level = level
@@ -51,7 +50,7 @@ def parse(
 
 
 @cli.command()
-def reload():
+def reload() -> None:
     """Reloads all parameters from the standard destination."""
     processor.loader.reload()
     console.print("[green]Reloaded all parameters.[/green]")
@@ -59,7 +58,9 @@ def reload():
 
 
 @cli.command()
-def load(path: Annotated[str, typer.Argument(help="Directory or parameter file.")]):
+def load(
+    path: Annotated[str, typer.Argument(help="Directory or parameter file.")],
+) -> None:
     """Loads parameters from a path (a directory, or a single standard file)."""
     try:
         loaded = processor.loader.load(path)
@@ -70,7 +71,7 @@ def load(path: Annotated[str, typer.Argument(help="Directory or parameter file."
 
 
 @cli.command()
-def set(name: str, value: str):
+def set(name: str, value: str) -> None:
     """Sets a parameter to a value (parsed as JSON when possible)."""
     try:
         processor.loader.set(name, value)
@@ -81,7 +82,7 @@ def set(name: str, value: str):
 
 
 @cli.command()
-def reset(name: str):
+def reset(name: str) -> None:
     """Reloads a single parameter from its standard destination file."""
     try:
         processor.loader.reset(name)
@@ -92,7 +93,7 @@ def reset(name: str):
 
 
 @cli.command()
-def get(name: str):
+def get(name: str) -> None:
     """Prints the current value of a parameter."""
     try:
         console.print_json(data=processor.loader.get(name))
@@ -106,7 +107,7 @@ def describe(
     lvl: Annotated[int, typer.Option(help="The level of the tree.")] = 0,
     num: Annotated[int, typer.Option(help="Ordinal number of the tree.")] = 0,
     verbose: bool = typer.Option(False, "--verbose", "-v"),
-):
+) -> None:
     tree = processor.trees[lvl][num]
     description = processor.interpreter.describe(tree, verbose=verbose, rich=True)
     console.print(description)
@@ -117,7 +118,7 @@ def describe(
 def gloss(
     lvl: Annotated[int, typer.Option(help="The level of the tree.")] = 0,
     num: Annotated[int, typer.Option(help="Ordinal number of the tree.")] = 0,
-):
+) -> None:
     tree = processor.trees[lvl][num]
     gloss_string = processor.interpreter.gloss(tree)
     console.print(gloss_string)
@@ -128,7 +129,7 @@ def gloss(
 def draw(
     lvl: Annotated[int, typer.Option(help="The level of the tree.")] = 0,
     num: Annotated[int, typer.Option(help="Ordinal number of the tree.")] = 0,
-):
+) -> None:
     tree = processor.trees[lvl][num]
     tree_string = processor.interpreter.draw_tree(tree)
     console.print(tree_string)
@@ -136,11 +137,11 @@ def draw(
 
 
 @cli.command()
-def exit():
+def exit() -> None:
     raise ExitException
 
 
-def main(path: str = ""):
+def main(path: str = "") -> None:
     global processor
     try:
         processor = Processor(path=path)

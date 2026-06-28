@@ -1,80 +1,39 @@
-import os
-import csv
 import copy
-
+import csv
 import logging
+import os
 import unicodedata
-
-from typing import Tuple, Optional, Generator, Dict
+from collections.abc import Callable, Generator
 from pathlib import Path
+from typing import cast
 
-from scripts.util import parse_value, resource_path, read_yaml, concat
-from scripts.parser_entities import Mapping, Dichotomy, Tree, Mask, Element
-from scripts.parser_dataclasses import Alphabet, GeneralRules, SpecialRules
-from scripts.parser_dataclasses import Dialect, Feature, Stance, Token, Symbol
-
-from rich.table import Table
-from rich.console import Group
 from rich import box
+from rich.console import Group
+from rich.table import Table
+
+from scripts.parser_dataclasses import (
+    Alphabet,
+    Dialect,
+    Feature,
+    GeneralRules,
+    SpecialRules,
+    Stance,
+    Symbol,
+    Token,
+)
+from scripts.parser_entities import Dichotomy, Element, Mapping, Mask, Tree
+from scripts.util import (
+    ParsingFailure,
+    StructureError,
+    concat,
+    is_int_list,
+    lemb_rank_sizes,
+    parse_value,
+    read_yaml,
+    resource_path,
+)
 
 logger = logging.getLogger(__name__)
-
-
-class ParsingFailure(Exception):
-    def __init__(self, message: str) -> None:
-        super().__init__(f"{message}")
-        return
-
-
-class StructureError(Exception):
-    """Raised when a parameter fails schema validation. A shape problem means the
-    parameter's structure is incongruent with the rest of the parametrization; a
-    type problem means its content type is wrong. A failure to parse the YAML
-    itself raises a plain ValueError instead.
-    """
-
-    _SOURCES = {
-        "rules_general": "general rules",
-        "rules_special": "special rules",
-        "alphabet": "alphabet",
-        "dialect": "dialect",
-    }
-
-    @classmethod
-    def shape(cls, param: str, source: str, problem: str) -> "StructureError":
-        """Builds an error for a structural (shape) problem."""
-        return cls(
-            f"Incongruent parametrization: {param} from "
-            f"{cls._SOURCES.get(source, source)} {problem}"
-        )
-
-    @classmethod
-    def wrong_type(cls, param: str, source: str, problem: str) -> "StructureError":
-        """Builds an error for a content-type problem."""
-        return cls(
-            f"Wrong parameter type: parameter {param} from "
-            f"{cls._SOURCES.get(source, source)} {problem}"
-        )
-
-
-def _is_int_list(value) -> bool:
-    """True if value is a list of integers (booleans excluded)."""
-    return isinstance(value, list) and all(
-        isinstance(x, int) and not isinstance(x, bool) for x in value
-    )
-
-
-def _lemb_rank_sizes(struct_level: list[int]) -> list[int]:
-    """Expected entry counts for each compound-length rank of a structure level:
-    one per node-count level, the k-th holding 2**(dichotomies up to k) entries.
-    Zero-dichotomy ranks add no level, so a degenerate level keeps just the root.
-    """
-    sizes, total = [1], 0
-    for d in struct_level:
-        if d > 0:
-            total += d
-            sizes.append(2**total)
-    return sizes
 
 
 class Processor:
@@ -166,7 +125,7 @@ class Loader:
     }
     PARAM_DIR = "params"
 
-    def __init__(self, prc: "Processor", path: str = "") -> None:
+    def __init__(self, prc: Processor, path: str = "") -> None:
         self.prc = prc
         self.path = path
         # Raw parameter data keyed by standard file name; the source of truth
@@ -199,7 +158,7 @@ class Loader:
     # Parameter sets that may only be loaded from a file, never set in place.
     _LOAD_ONLY = ("alphabet", "dialect")
 
-    def set(self, name: str, value) -> None:
+    def set(self, name: str, value: str) -> None:
         """Sets the parameter with the given top-level name to the given value.
         A string value is parsed as YAML when possible (so numbers, lists and
         mappings are handled), otherwise kept as a plain string.
@@ -210,8 +169,8 @@ class Loader:
         fname, key = self._locate(name)
         if fname in self._LOAD_ONLY:
             raise ValueError(
-                f"{fname.capitalize()} parameters cannot be set, "
-                f"only loaded from a file ('{key}')"
+                f"{fname.capitalize()} parameters cannot be set, only loaded"
+                f"from a file ('{key}')"
             )
         self._transact(lambda: self.params[fname].__setitem__(key, parse_value(value)))
         return
@@ -225,7 +184,7 @@ class Loader:
         self._transact(lambda: self.params[fname].__setitem__(key, fresh[key]))
         return
 
-    def get(self, name: str):
+    def get(self, name: str) -> None:
         """Returns the current value of the named parameter."""
         fname, key = self._locate(name)
         return self.params[fname][key]
@@ -238,7 +197,7 @@ class Loader:
         known = sorted(k for d in self.params.values() for k in d)
         raise ValueError(f"Unknown parameter '{name}'. Known: {', '.join(known)}")
 
-    def _transact(self, mutate) -> None:
+    def _transact(self, mutate: Callable) -> None:
         """Applies a parameter mutation, validates the new shape and rebuilds,
         rolling the parameters back and re-raising if validation or the build
         fails.
@@ -290,7 +249,7 @@ class Loader:
         levels = len(struct)
         sums = [sum(lv) for lv in struct]  # total dichotomies (N_i) per level
 
-        def check(name, kind, length_of):
+        def check(name: str, kind: str, length_of: Callable | None) -> None:
             param = gr[name]
             if not (isinstance(param, list) and len(param) == levels):
                 raise StructureError.shape(
@@ -301,7 +260,7 @@ class Loader:
                     raise StructureError.shape(
                         name, src, f"must hold a list at level {i}"
                     )
-                if kind == "int" and not _is_int_list(sub):
+                if kind == "int" and not is_int_list(sub):
                     raise StructureError.wrong_type(
                         name, src, f"must hold only integers at level {i}"
                     )
@@ -313,8 +272,8 @@ class Loader:
                     raise StructureError.shape(
                         name,
                         src,
-                        f"must have {length_of(sums[i])} entries at level {i}, "
-                        f"not {len(sub)}",
+                        f"must have {length_of(sums[i])} entries "
+                        f"at level {i}, not {len(sub)}",
                     )
 
         # Shapes: dichotomy-indexed params hold N entries, node-indexed ones 2**N.
@@ -337,21 +296,22 @@ class Loader:
                 raise StructureError.shape(
                     "lembs", src, f"must hold a list of rank lists at level {i}"
                 )
-            if not all(_is_int_list(r) for r in sub):
+            if not all(is_int_list(r) for r in sub):
                 raise StructureError.wrong_type(
                     "lembs", src, f"must hold only integers at level {i}"
                 )
-            want = _lemb_rank_sizes(struct[i])
-            if [len(r) for r in sub] != want:
+            want = lemb_rank_sizes(struct[i])
+            ranks = cast(list[list], sub)
+            if [len(r) for r in ranks] != want:
                 raise StructureError.shape(
                     "lembs",
                     src,
-                    f"ranks at level {i} must have lengths {want}, "
-                    f"not {[len(r) for r in sub]}",
+                    f"ranks at level {i} must have lengths {want}, not "
+                    f"{[len(r) for r in ranks]}",
                 )
 
         # Value types, per each parameter's description.
-        def require(names, ok, desc):
+        def require(names: tuple, ok: Callable, desc: str) -> None:
             for name in names:
                 for i, sub in enumerate(gr[name]):
                     items = [x for r in sub for x in r] if name == "lembs" else sub
@@ -409,13 +369,13 @@ class Loader:
                 raise StructureError.shape(
                     "tneuts", src, f"must hold a list of strings at node {i}"
                 )
-            for s in slot:
+            for s in cast(list[str], slot):
                 if s != "" and (len(s) != 1 or s not in chars):
                     raise StructureError.wrong_type(
                         "tneuts",
                         src,
-                        f"must hold empty or single content characters, "
-                        f"but node {i} has {s!r}",
+                        f"must hold empty or single content characters, but node "
+                        f"{i} has {s!r}",
                     )
         return
 
@@ -426,26 +386,25 @@ class Loader:
         src = "alphabet"
         levels = len(self.params["rules_general"]["struct"])
 
-        def is_member(m):  # a single string, or a list of strings
+        def is_member(m: str | list[str]) -> bool:
             return isinstance(m, str) or (
                 isinstance(m, list) and all(isinstance(x, str) for x in m)
             )
 
-        def check_groups(groups, param, owner):
+        def check_groups(
+            groups: dict, param: str, owner: str, count: int, descr: str
+        ) -> None:
             for name, group in groups.items():
-                if not (isinstance(group, list) and len(group) == levels):
+                if not (isinstance(group, list) and len(group) == count):
                     raise StructureError.shape(
-                        param,
-                        src,
-                        f"{owner} group '{name}' must have one member per level "
-                        f"({levels})",
+                        param, src, f"{owner} group '{name}' must have {descr}"
                     )
                 if not all(is_member(m) for m in group):
                     raise StructureError.wrong_type(
                         param,
                         src,
-                        f"{owner} group '{name}' members must be strings or "
-                        f"lists of strings",
+                        f"{owner} group '{name}' members must be strings or lists "
+                        f"of strings",
                     )
 
         bases = al.get("bases")
@@ -470,18 +429,52 @@ class Loader:
             raise StructureError.shape(
                 "bases", src, "'guiding' must contain wildcard, separator and embedder"
             )
-        check_groups(guiding, "bases", "guiding")
+        check_groups(
+            guiding, "bases", "guiding", levels, f"one member per level ({levels})"
+        )
 
         modifiers = al.get("modifiers")
-        if not (isinstance(modifiers, dict) and "breaker" in modifiers):
+        if not (
+            isinstance(modifiers, dict)
+            and "breaker" in modifiers
+            and "swapper" in modifiers
+        ):
             raise StructureError.shape(
-                "modifiers", src, "must be a mapping with 'breaker'"
+                "modifiers", src, "must be a mapping with 'breaker' and 'swapper'"
             )
         if not isinstance(modifiers["breaker"], dict):
             raise StructureError.shape(
                 "modifiers", src, "'breaker' must be a mapping of class to list"
             )
-        check_groups(modifiers["breaker"], "modifiers", "breaker")
+        # Breakers are defined for the bottom level only: one pair per class.
+        check_groups(
+            modifiers["breaker"], "modifiers", "breaker", 1, "one breaker pair"
+        )
+
+        swappers = modifiers["swapper"]
+        if not isinstance(swappers, list):
+            raise StructureError.shape(
+                "modifiers", src, "'swapper' must be a list of swapper pairs"
+            )
+        for i, pair in enumerate(swappers):
+            if not (isinstance(pair, list) and len(pair) == 2):
+                raise StructureError.shape(
+                    "modifiers", src, f"swapper {i} must be a pair of dicts"
+                )
+            if not all(
+                isinstance(m, dict)
+                and all(
+                    isinstance(k, str) and isinstance(v, str) and len(v) == 1
+                    for k, v in m.items()
+                )
+                for m in pair
+            ):
+                raise StructureError.wrong_type(
+                    "modifiers",
+                    src,
+                    f"swapper {i} must pair dicts mapping classes to single "
+                    f"characters",
+                )
 
         subs = al.get("substitutions")
         if not isinstance(subs, dict):
@@ -509,7 +502,7 @@ class Loader:
                 "ctypes", src, f"must be a list with one entry per level ({levels})"
             )
         for i, level in enumerate(ctypes):
-            ranks = len(_lemb_rank_sizes(struct[i]))  # number of tree ranks
+            ranks = len(lemb_rank_sizes(struct[i]))  # number of tree ranks
             if not isinstance(level, dict):
                 raise StructureError.shape(
                     "ctypes", src, f"must map embedding depth to types at level {i}"
@@ -519,8 +512,8 @@ class Loader:
                     raise StructureError.shape(
                         "ctypes",
                         src,
-                        f"must map type names to definitions at level {i}, "
-                        f"depth {depth!r}",
+                        f"must map type names to definitions at level {i}, depth "
+                        f"{depth!r}",
                     )
                 for tname, tdef in types.items():
                     if not (isinstance(tdef, dict) and "ranks" in tdef):
@@ -529,6 +522,7 @@ class Loader:
                             src,
                             f"type '{tname}' must be a mapping with 'ranks'",
                         )
+                    tdef = cast(dict, tdef)
                     rank_perms = tdef["ranks"]
                     if not isinstance(rank_perms, list):
                         raise StructureError.shape(
@@ -562,9 +556,41 @@ class Loader:
                             raise StructureError.wrong_type(
                                 "ctypes",
                                 src,
-                                f"type '{tname}' '{opt}' must hold only "
-                                f"non-negative integers",
+                                f"type '{tname}' '{opt}' must hold only non-negative "
+                                f"integers",
                             )
+
+        ptypes = di.get("ptypes")
+        if not isinstance(ptypes, list):
+            raise StructureError.shape("ptypes", src, "must be a list")
+        for entry in ptypes:
+            if not isinstance(entry, dict):
+                raise StructureError.shape(
+                    "ptypes", src, "must map permutation type names to definitions"
+                )
+            for pname, pdef in entry.items():
+                if not (isinstance(pdef, dict) and "swaps" in pdef):
+                    raise StructureError.shape(
+                        "ptypes", src, f"type '{pname}' must be a mapping with 'swaps'"
+                    )
+                swaps = pdef["swaps"]
+                if not (
+                    isinstance(swaps, list)
+                    and all(
+                        isinstance(s, list)
+                        and len(s) == 2
+                        and all(
+                            isinstance(x, int) and not isinstance(x, bool) for x in s
+                        )
+                        for s in swaps
+                    )
+                ):
+                    raise StructureError.wrong_type(
+                        "ptypes",
+                        src,
+                        f"type '{pname}' 'swaps' must be an empty list or a list of "
+                        f"integer pairs",
+                    )
         return
 
     def load_raw(self, name: str) -> dict:
@@ -585,8 +611,8 @@ class Loader:
         if name is None:
             allowed = ", ".join(self._FILES.values())
             raise ValueError(
-                f"'{base}' is not a standard parameter file "
-                f"(expected one of: {allowed})"
+                f"'{base}' is not a standard parameter file (expected one of: "
+                f"{allowed})"
             )
         return name, read_yaml(path)
 
@@ -660,6 +686,7 @@ class Loader:
         untyped, typed = features
         return Dialect(
             ctypes=copy.deepcopy(raw["ctypes"]),
+            ptypes=copy.deepcopy(raw["ptypes"]),
             untyped=untyped,
             typed=typed,
         )
@@ -672,11 +699,12 @@ class Streamer:
 
     def __init__(self, prc: Processor) -> None:
         self.prc = prc
-        self.e: Element | None = None
-        self.t: Token | None = None
+        self.instr: str = ""
+        self.e: Element
+        self.t: Token
         return
 
-    def _tokenize(self) -> Generator[Token, None, None]:
+    def _tokenize(self) -> Generator:
         """Performs the splitting, alphabetic filtering, symbolization,
         and tokenization of the input string.
         """
@@ -690,13 +718,14 @@ class Streamer:
                 sub = subs[ch]
                 # If the replacement consists of more than one symbol,
                 # add the additional symbols to the string
-                for j, s in enumerate(sub[1:]):
-                    linstr.insert(i + j + 1, s)
+                for j, extra in enumerate(sub[1:]):
+                    linstr.insert(i + j + 1, extra)
                 ch = sub[0]
             if ch not in self.prc.alphabet.lookup:
                 continue
             params = self.prc.alphabet.lookup[ch]
-            s = Symbol(ch, *params.values(), i)
+            # ty cannot check a splat of dynamically-typed lookup values
+            s = Symbol(ch, *params.values(), i)  # ty: ignore[invalid-argument-type, too-many-positional-arguments]
             # Wrapping the base symbol into a token (if base)
             # or modifying the previous one (if modifier)
             # The token is yielded as the next base symbol is read
@@ -708,6 +737,7 @@ class Streamer:
                     t.modifiers.append(s)
             if s.acat == "Base":
                 t = Token(base=s)
+
         if isinstance(t, Token) and s.aclass != "separator":
             yield t
 
@@ -745,7 +775,8 @@ class Streamer:
 
     def add(self) -> None:
         """Adds the current element to stack, parses and closes it."""
-        lvl, dpt = self.e.level, self.prc.mapping.cur_dpt[self.e.level]
+        lvl = self.e.level
+        dpt = self.prc.mapping.cur_dpt[self.e.level]
         self.e.stance = Stance(depth=dpt)
         self.prc.mapper.close(self.e)
         self.parse()
@@ -781,7 +812,7 @@ class Streamer:
             # Popping only operates on the latest item in the element buffer,
             # which must also be a list of elements
             content = self.prc.mapping.elems[lvl]
-            for i in range(self.prc.mapping.cur_dpt[lvl]):
+            for _ in range(self.prc.mapping.cur_dpt[lvl]):
                 if not isinstance(content[-1], list):
                     return
                 elif len(content[-1]) == 0:
@@ -797,7 +828,7 @@ class Streamer:
             self.prc.mapping.cur_breaks[lvl][self.prc.mapping.cur_dpt[lvl]] = 0
 
             target = self.prc.mapping.elems[lvl]
-            for i in range(self.prc.mapping.cur_dpt[lvl] - 1):
+            for _ in range(self.prc.mapping.cur_dpt[lvl] - 1):
                 target = target[-1]
             target[-1] = e
 
@@ -877,7 +908,7 @@ class Masker:
         self.prc: Processor = prc
         # Level > Depth > Rank > Dichotomy
         self.masks: list[list[list[list[Dichotomy]]]] = [
-            [] for lvl in range(len(self.prc.grules.struct))
+            [] for _ in range(len(self.prc.grules.struct))
         ]
         self.construct()
         return
@@ -945,7 +976,7 @@ class Masker:
                     dich = Dichotomy(level=lvl, d=dich_num - d - 1, nb=nbs[d])
                     dich.terminal = d == 0
                     dich.left, dich.right = [left_mask, right_mask]
-                    dich.rev = min(revs[lvl][d][p : p + 2]) if d < 1 else 0
+                    dich.rev = bool(min(revs[lvl][d][p : p + 2]) if d < 1 else 0)
                     dich.ret = rets[lvl][d]
                     dich.skip = skips[lvl][d]
                     dich.split = splits[lvl][d]
@@ -968,27 +999,27 @@ class Masker:
                 out.append(dich)
         return out
 
-    def get_dichs(
-        self, stance: Stance, lvl: int, downstream: bool = False
-    ) -> Dichotomy | list[Dichotomy]:
-        """Returns the dichotomy with the key defined by the stance.
-        If downstream is True, also returns every dichotomy downstream of it.
+    def get_dichs(self, stance: Stance, lvl: int) -> list[Dichotomy]:
+        """Returns the dichotomy with the key defined by the stance as well as
+        every dichotomy downstream of it.
         """
         dichs = self._find_dichs(stance.pos, stance.depth, lvl)
-        out = dichs if downstream else dichs[0]
-
-        if out:
-            return out
+        if dichs:
+            return dichs
         else:
             raise ValueError(f"Could not find dichotomy by stance {stance}")
 
-    def set_dichotomy(self, dich: Dichotomy, comp: Tuple[int, int], level: int) -> None:
+    def set_dichotomy(
+        self, dich: Dichotomy, comp: tuple[int | None, int], level: int
+    ) -> None:
         """Records the given tuple of pos and rep to the pointed mask.
         If non-terminal, resets dichotomies downstream of the other mask.
         If rep is increased, also resets those downstream the pointed mask.
         """
-        target_mask = dich.masks[dich.pointer]
-        other_mask = dich.masks[1 - dich.pointer]
+        pointer = dich.pointer
+        assert pointer is not None  # the pointer is set before recording a fit
+        target_mask = dich.masks[pointer]
+        other_mask = dich.masks[1 - pointer]
         if not dich.terminal:
             self.reset_dichotomies(level, other_mask.depth, other_mask.num_key)
             if target_mask.rep < comp[1]:
@@ -1000,7 +1031,7 @@ class Masker:
         self,
         level: int,
         depth: int,
-        num_key: Optional[list[int]] = None,
+        num_key: list[int] | None = None,
         total: bool = False,
     ) -> None:
         """Sets the pointers of dichotomies with and downstream of the given key
@@ -1008,7 +1039,7 @@ class Masker:
         to the other, as well as to prepare for parsing the next element.
         """
         stance = Stance(pos=num_key or [], rep=[], depth=depth)
-        dichs = self.get_dichs(stance, level, downstream=True)
+        dichs = self.get_dichs(stance, level)
         for dich in dichs:
             dich.pointer = None
             for mask in dich.masks:
@@ -1027,7 +1058,7 @@ class Mapper:
 
     def __init__(self, prc: Processor) -> None:
         self.prc: Processor = prc
-        self.e: Element | None = None
+        self.e: Element
         return
 
     def _decide_dichotomy(self, dich: Dichotomy, forbid_shift: bool = False) -> bool:
@@ -1042,15 +1073,15 @@ class Mapper:
             any((dich.pointer == 0, not dich.skip)),
         ]
         # Results of fit for the masks
-        comps = [
+        comp0, comp1 = (
             dich.masks[0].compare(self.e, dich.split),
             dich.masks[1].compare(self.e, dich.split),
-        ]
+        )
         fit = None
         # Skip to the second mask if the breaker count is positive
         if self.prc.mapping.cur_breaks[lvl][dpt] > 0:
             self.prc.mapping.cur_breaks[lvl][dpt] -= 1
-            if not comps[1]:
+            if not comp1:
                 return False
             # Breaking is permanent, so fitting to the first mask is now forbidden
             dich.masks[0].freeze = True
@@ -1060,16 +1091,16 @@ class Mapper:
         if not fit:
             # If both masks are fitting, choose the first one unless
             # it is the only one that increases rep
-            if all([conds[0], comps[0], conds[1], comps[1]]):
-                if comps[1][1] == dich.masks[1].rep and comps[0][1] > dich.masks[0].rep:
+            if conds[0] and comp0 and conds[1] and comp1:
+                if comp1[1] == dich.masks[1].rep and comp0[1] > dich.masks[0].rep:
                     fit = 1
                 else:
                     fit = 0
             # First mask fitting (the second one wasn't fit OR ret is not forbidden)
-            elif all([conds[0], comps[0]]):
+            elif conds[0] and comp0:
                 fit = 0
             # Second mask fitting (the first one wasn't fit OR skip is not forbidden)
-            elif all([conds[1], comps[1]]):
+            elif conds[1] and comp1:
                 fit = 1
             # Otherwise and if the dich is non-binary, perform a shift and try again
             elif dich.nb and not forbid_shift:
@@ -1092,7 +1123,9 @@ class Mapper:
         old_mask = f"{dich.masks[fit]}"
 
         # Prepare the decision
-        self.prc.masker.set_dichotomy(dich, comps[fit], lvl)
+        comp = comp0 if fit == 0 else comp1
+        assert comp is not None  # the chosen mask had a fit
+        self.prc.masker.set_dichotomy(dich, comp, lvl)
         pos = fit if not dich.rev else 1 - fit
         rep = dich.masks[fit].rep
 
@@ -1154,7 +1187,8 @@ class Mapper:
                     if fit:
                         dpt = elems[i].stance.depth
                         logger.debug(
-                            f"[L{level}|D{dpt}] Shifted {elems[i]} from {old_stance} to {new_stance}"
+                            f"[L{level}|D{dpt}] Shifted {elems[i]} from "
+                            f"{old_stance} to {new_stance}"
                         )
                         slot_in_process = True
                         elems_shifted += 1
@@ -1187,7 +1221,9 @@ class Mapper:
         lvl, dpt = dich.level, dich.depth
         enum_elems = self.prc.mapping.enumerate_elems
 
-        def get_sides():
+        def get_sides() -> tuple[
+            list[Element], list[list[int]], list[dict[str, list[int]]]
+        ]:
             elems = self.prc.mapping.get_stack(lvl, interval=True)
             nk = [dich.masks[i].num_key for i in range(2)]
             hits = [enum_elems(nk[i], elems, dich.d) for i in range(2)]
@@ -1232,7 +1268,11 @@ class Mapper:
         return True
 
     def _neutralize(
-        self, to_fill: Dict[str, list[int]], lvl: int, dpt: int, compensate: bool
+        self,
+        to_fill: list[tuple[list[int], Mask, Stance]],
+        lvl: int,
+        dpt: int,
+        compensate: bool,
     ) -> bool:
         """Inserts neutral elements at the given addresses for the given level
         and depth.
@@ -1263,11 +1303,11 @@ class Mapper:
                 slot = 1
                 insert_index = max(indices)
 
-            base_order = elems[insert_index].head.content.base.order
+            base_order = elems[insert_index].head.tok.base.order
             slot_order = slot - 1 if compensate else 1
-            neut.head.content.base.order = base_order + slot_order
+            neut.head.tok.base.order = base_order + slot_order
 
-            if isinstance(self.e.content, list):
+            if not self.e.molar:
                 if self.e.content[0].level != self.e.level:
                     self.e.content.insert(insert_index + slot, neut)
 
@@ -1284,7 +1324,7 @@ class Mapper:
         elems = self.e.content
         cnt = 0
         addr = None
-        for i, e in enumerate(elems):
+        for e in elems:
             if e.level != 0:
                 continue
             cnt = cnt + 1 if e.stance.pos + e.stance.rep[:-1] == addr else 0
@@ -1305,8 +1345,8 @@ class Mapper:
                 return False
             perm = depth_perms[priority]
 
-            aclass = e.head.content.base.aclass
-            base = str(e.head.content.base)
+            aclass = e.head.tok.base.aclass
+            base = str(e.head.tok.base)
             if not any([base in perm or aclass in perm, aclass == "wildcard"]):
                 logger.warning(
                     f"-> No permission for '{e.head}'/'{aclass}' at {e.stance}"
@@ -1326,13 +1366,13 @@ class Mapper:
         if dich is None:
             elems = self.e.content
             level, depth = elems[0].level, elems[0].stance.depth
-            dich = self.prc.masker.get_dichs(Stance(depth=depth), level)
+            dich = self.prc.masker.get_dichs(Stance(depth=depth), level)[0]
         else:
             elems = None
             level, depth = dich.level, dich.depth
         res = True
         stance = Stance(pos=dich.masks[dich.pointer or 0].num_key, depth=depth)
-        dichs = self.prc.masker.get_dichs(stance, level, downstream=True)
+        dichs = self.prc.masker.get_dichs(stance, level)
         invert = bool(dich.pointer or 0)
 
         for cdich in dichs:
@@ -1346,8 +1386,8 @@ class Mapper:
     def _fit_element(
         self,
         e: Element,
-        stance: Optional[Stance] = None,
-        d: Optional[int] = None,
+        stance: Stance | None = None,
+        d: int | None = None,
         term_only: bool = False,
         force_mov: bool = False,
     ) -> bool:
@@ -1358,7 +1398,7 @@ class Mapper:
             if (term_only and p != len(stance.pos) - 1) or (d is not None and p < d):
                 continue
             part_stance = stance.copy(p)
-            dich = self.prc.masker.get_dichs(part_stance, e.level)
+            dich = self.prc.masker.get_dichs(part_stance, e.level)[0]
             cur_mask = pos if not dich.rev else 1 - pos
 
             comp = dich.masks[cur_mask].compare(e, dich.split, force_mov)
@@ -1377,8 +1417,8 @@ class Mapper:
         self.e = e
         if e.stance is None:
             e.stance = Stance()
-        for d in range(0, sum(self.prc.grules.struct[e.level])):
-            dich = self.prc.masker.get_dichs(e.stance, e.level)
+        for _ in range(0, sum(self.prc.grules.struct[e.level])):
+            dich = self.prc.masker.get_dichs(e.stance, e.level)[0]
             if not self._decide_dichotomy(dich):
                 raise ParsingFailure(f"Failed to parse '{e}'")
         return True
@@ -1414,24 +1454,24 @@ class Interpreter:
         """
         finals = [r + 1 == s for s in tree.struct for r in range(s)]
         # Iterating the elements and setting each
-        for i, e in enumerate(elems):
+        for e in elems:
             # Accounting for reps
-            for j, st in enumerate(e.stance.pos):
+            for j in range(len(e.stance.pos)):
                 if finals[j]:
                     base_stance = e.stance.copy(j + 1)
                     base_stance.rep[-1] = 0
-                    base_node = tree.get_nodes(base_stance)
+                    base_node = tree.get_nodes(base_stance)[-1]
                     if e.stance.rep[j] > len(base_node.compounds):
-                        for c in range(e.stance.rep[j] - len(base_node.compounds)):
+                        for _ in range(e.stance.rep[j] - len(base_node.compounds)):
                             tree.embed_compound(base_node)
 
             # Accounting for depth
             if not e.molar and e.content[0].level == e.level:
-                base_node = tree.get_nodes(e.stance)
+                base_node = tree.get_nodes(e.stance)[-1]
                 tree.embed_complex(base_node)
                 self.apply(e.content, base_node.complexes[-1])
 
-            tree.set_element(e, set_all=True)
+            tree.set_element(e)
 
         return
 
@@ -1443,7 +1483,7 @@ class Interpreter:
         if not ctypes:
             ctypes = []
         elif str(tree.depth) in ctypes:
-            ctypes = ctypes[str(tree.depth)] | ctypes[""]
+            ctypes = ctypes[str(tree.depth)] or ctypes[""]
         else:
             ctypes = ctypes[""]
         fits = []
@@ -1500,8 +1540,8 @@ class Interpreter:
                 continue
             e = node.content[0]
             feature = self.prc.dialect.get_feature(
-                e.header.content.base.index,
-                e.header.content.base.aclass,
+                e.header.tok.base.index,
+                e.header.tok.base.aclass,
                 node.stance,
                 tree.stance,
                 tree.ctype,
@@ -1567,7 +1607,7 @@ class Interpreter:
                     + ", ".join(str(n) for n in featureless)
                     + "[/dim]"
                 )
-            renderables = [table]
+            renderables: list = [table]
             for node in [n for n in tree.all_nodes if n.complexes]:
                 for c in node.complexes:
                     renderables.append(
@@ -1590,7 +1630,8 @@ class Interpreter:
                 logger.info(msg, *args)
             if featureless:
                 logger.info(
-                    f"{_prefix}>> Features lacking interpretation: {', '.join(str(n) for n in featureless)}"
+                    f"{_prefix}>> Features lacking interpretation: "
+                    f"{', '.join(str(n) for n in featureless)}"
                 )
             for node in [n for n in tree.all_nodes if n.complexes]:
                 for c in node.complexes:
@@ -1642,7 +1683,7 @@ class Interpreter:
         form_parts: list[str] = []
         gloss_parts: list[str] = []
 
-        def flush():
+        def flush() -> None:
             if form_parts:
                 tokens.append(("-".join(form_parts), "-".join(gloss_parts)))
                 form_parts.clear()

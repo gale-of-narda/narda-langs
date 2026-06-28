@@ -32,31 +32,48 @@
 # - Depth 4 (equally for every restriction): rank number
 
 ctypes:
-- ? ''
-  : Proform:
-      ranks: ['', '*+-*', '']
+- '':
+    Proform:
+      ranks: [ '', '*+-*', '' ]
     Conjunction:
-      ranks: ['', '*-+*', '']
+      ranks: [ '', '*-+*', '' ]
     Content word:
-      ranks: ['', '*++*', '']
+      ranks: [ '', '*++*', '' ]
   '1':
     Modulator:
-      ranks: ['', '-*1-', '']
-      cpos: [0, 0, 0]
+      ranks: [ '', '-*1-', '' ]
+      cpos: [ 0, 0, 0 ]
     Connector:
-      ranks: ['', '11--', '']
-      cpos: [0, 0, 1]
+      ranks: [ '', '11--', '' ]
+      cpos: [ 0, 0, 1 ]
     Classifier:
-      ranks: ['', '--11', '']
-      cpos: [1, 1, 1]
+      ranks: [ '', '--11', '' ]
+      cpos: [ 1, 1, 1 ]
     Determiner:
-      ranks: ['', '-1*-', '']
-      cpos: [1, 1, 0]
-- ? ''
-  : Predicate-only:
-      ranks: ['', '+-', '']
+      ranks: [ '', '-1*-', '' ]
+      cpos: [ 1, 1, 0 ]
+- '':
+    Predicate-only:
+      ranks: [ '', '+-', '' ]
     Full sentence:
-      ranks: ['', '++', '']
-- ? ''
-  : Text:
-      ranks: ['']
+      ranks: [ '', '++', '' ]
+- '':
+    Text:
+      ranks: [ '' ]
+
+# Permutation types
+# Define permutation types for the elements of the bottom level
+# Last type whose restirctions are cleared by an element is assigned to it
+
+# Permutation restrictions only involve swapping records - swaps
+# Every swap restriction is a set of pairs with node indexes of swapped tokens
+# The actual pairs of swapped tokens must match the restriction exactly
+# Empty restriction means no swaps are allowed
+
+ptypes:
+- Neutral:
+    swaps: []
+- Concordant:
+    swaps: [ [ 3, 4 ] ]
+- Discordant:
+    swaps: [ [ 5, 6 ] ]
