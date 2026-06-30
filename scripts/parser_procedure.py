@@ -20,6 +20,7 @@ from scripts.parser_dataclasses import (
     Stance,
     Symbol,
     Token,
+    Type,
 )
 from scripts.parser_entities import Dichotomy, Element, Mapping, Mask, Tree
 from scripts.util import (
@@ -55,7 +56,7 @@ class Processor:
         self.grules = self.loader.build_grules(params["rules_general"])
         self.srules = self.loader.build_srules(params["rules_special"])
         self.dialect = self.loader.build_dialect(
-            params["dialect"], self.loader.load_features()
+            params["dialect"], self.loader.load_features(), self.loader.load_types()
         )
         self.levels = range(len(self.grules.struct))
         self.mapper = Mapper(self)
@@ -70,7 +71,7 @@ class Processor:
         logger.info(f"Parsing '{instr}'")
         # Resetting the parameters
         self.mapping = Mapping(self.levels)
-        self.trees = [[] for lvl in self.levels]
+        self.trees = [[] for _ in self.levels]
         self.streamer.instr = instr
         self.masker.construct()
         # Parsing the string
@@ -92,6 +93,7 @@ class Processor:
                 self.interpreter.apply(es, tree)
                 if self.max_level is None or self.max_level >= lvl:
                     self.interpreter.determine_ctype(tree)
+                    self.interpreter.determine_ptype(tree)
                     self.interpreter.interpret(tree)
         return True
 
@@ -472,20 +474,43 @@ class Loader:
                 raise StructureError.wrong_type(
                     "modifiers",
                     src,
-                    f"swapper {i} must pair dicts mapping classes to single "
-                    f"characters",
+                    f"swapper {i} must pair dicts mapping classes to single characters",
                 )
 
         subs = al.get("substitutions")
-        if not isinstance(subs, dict):
-            raise StructureError.shape("substitutions", src, "must be a mapping")
+        if not (isinstance(subs, dict) and "free" in subs and "elongator" in subs):
+            raise StructureError.shape(
+                "substitutions", src, "must be a mapping with 'free' and 'elongator'"
+            )
+        free = subs["free"]
+        if not isinstance(free, dict):
+            raise StructureError.shape("substitutions", src, "'free' must be a mapping")
         if not all(
             isinstance(k, str) and len(k) == 1 and isinstance(v, str)
-            for k, v in subs.items()
+            for k, v in free.items()
         ):
             raise StructureError.wrong_type(
-                "substitutions", src, "must map single characters to strings"
+                "substitutions", src, "'free' must map single characters to strings"
             )
+        elongator = subs["elongator"]
+        if not isinstance(elongator, dict):
+            raise StructureError.shape(
+                "substitutions", src, "'elongator' must be a mapping"
+            )
+        classes = al["bases"]["content"]
+        for k, v in elongator.items():
+            if k not in classes:
+                raise StructureError.shape(
+                    "substitutions",
+                    src,
+                    f"'elongator' class '{k}' is not a content class",
+                )
+            if not (isinstance(v, str) and len(v) == 1):
+                raise StructureError.wrong_type(
+                    "substitutions",
+                    src,
+                    f"'elongator' class '{k}' must map to a single character",
+                )
         return
 
     def _validate_dialect(self, di: dict) -> None:
@@ -616,35 +641,56 @@ class Loader:
             )
         return name, read_yaml(path)
 
-    def load_features(self) -> tuple[list, list]:
+    def load_features(self) -> list[Feature]:
         """Loads the combined features file describing the functions and their
-        arguments. Rows with a content type are typed, the rest untyped; returns
-        the (untyped, typed) feature lists.
+        arguments. A feature with a content type is bound to it; the rest are
+        untyped.
         """
-        untyped, typed = [], []
+        features = []
         path = Path(resource_path(self.path + f"{self.PARAM_DIR}/features.tsv"))
         with path.open("r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f, delimiter="\t")
             for line in reader:
                 if not line.get("pos"):  # skip blank rows
                     continue
-                ctype = line["ctype"] or None
-                feature = Feature(
-                    ctype=ctype,
-                    pos=[int(x) for x in line["pos"]],
-                    rep=[int(x) for x in line["rep"]],
-                    cpos=[int(x) for x in line["cpos"]],
-                    crep=[int(x) for x in line["crep"]],
-                    content_class=line["content_class"],
-                    priority=int(line["priority"]),
-                    index=int(line["index"]),
-                    function_name=line["function_name"],
-                    argument_gloss=line["argument_gloss"],
-                    argument_name=line["argument_name"],
-                    argument_description=line["argument_description"],
+                features.append(
+                    Feature(
+                        ctype=line["ctype"] or None,
+                        pos=[int(x) for x in line["pos"]],
+                        rep=[int(x) for x in line["rep"]],
+                        cpos=[int(x) for x in line["cpos"]],
+                        crep=[int(x) for x in line["crep"]],
+                        content_class=line["content_class"],
+                        priority=int(line["priority"]),
+                        index=int(line["index"]),
+                        function_name=line["function_name"],
+                        argument_gloss=line["argument_gloss"],
+                        argument_name=line["argument_name"],
+                        argument_description=line["argument_description"],
+                    )
                 )
-                (typed if ctype else untyped).append(feature)
-        return untyped, typed
+        return features
+
+    def load_types(self) -> list[Type]:
+        """Loads the types file describing the composition and permutation types
+        with their priorities and descriptions.
+        """
+        types = []
+        path = Path(resource_path(self.path + f"{self.PARAM_DIR}/types.tsv"))
+        with path.open("r", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f, delimiter="\t")
+            for line in reader:
+                if not line.get("type"):  # skip blank rows
+                    continue
+                types.append(
+                    Type(
+                        type=line["type"],
+                        priority=int(line["priority"]),
+                        argument_name=line["argument_name"],
+                        argument_description=line["argument_description"],
+                    )
+                )
+        return types
 
     def build_alphabet(self, raw: dict) -> Alphabet:
         """Builds the alphabet dataclass from raw parameters."""
@@ -681,14 +727,17 @@ class Loader:
             tneuts=raw["tneuts"],
         )
 
-    def build_dialect(self, raw: dict, features: tuple[list, list]) -> Dialect:
-        """Builds the dialect dataclass from raw parameters and feature lists."""
-        untyped, typed = features
+    def build_dialect(
+        self, raw: dict, features: list[Feature], types: list[Type]
+    ) -> Dialect:
+        """Builds the dialect dataclass from raw parameters and the feature and
+        type lists.
+        """
         return Dialect(
             ctypes=copy.deepcopy(raw["ctypes"]),
             ptypes=copy.deepcopy(raw["ptypes"]),
-            untyped=untyped,
-            typed=typed,
+            features=features,
+            types=types,
         )
 
 
@@ -709,22 +758,38 @@ class Streamer:
         and tokenization of the input string.
         """
         t: Token | None = None
+        prev: str | None = None  # previous character, for detecting repeats
+        cache: str | None = None  # a content character replaced by an elongator
         # Precomposed characters are decomposed (NFC)
         linstr = [ch.lower() for ch in unicodedata.normalize("NFD", self.instr)]
         for i, ch in enumerate(linstr):
-            # Wrapping the char into a symbol if it is alphabetic
-            subs = self.prc.alphabet.substitutions
-            if ch in subs:
-                sub = subs[ch]
+            # Replacing a character with its free substitution
+            free = self.prc.alphabet.free
+            if ch in free:
+                sub = free[ch]
                 # If the replacement consists of more than one symbol,
                 # add the additional symbols to the string
                 for j, extra in enumerate(sub[1:]):
                     linstr.insert(i + j + 1, extra)
                 ch = sub[0]
+            # Elongating: a content character repeating the previous one of its
+            # class is replaced by its elongator. While the same character keeps
+            # repeating it is dropped; any other character clears the cache.
+            elongators = self.prc.alphabet.elongators
+            info = self.prc.alphabet.lookup.get(ch)
+            cls = info["Class"] if info and info["Subcategory"] == "content" else None
+            if cache is not None:
+                if ch == cache:
+                    continue
+                cache = None
+            if cls is not None and cls in elongators and ch == prev:
+                cache = ch
+                ch = elongators[cls]
+            prev = cache if cache is not None else ch
+            # Wrapping the char into a symbol if it is alphabetic
             if ch not in self.prc.alphabet.lookup:
                 continue
             params = self.prc.alphabet.lookup[ch]
-            # ty cannot check a splat of dynamically-typed lookup values
             s = Symbol(ch, *params.values(), i)  # ty: ignore[invalid-argument-type, too-many-positional-arguments]
             # Wrapping the base symbol into a token (if base)
             # or modifying the previous one (if modifier)
@@ -747,11 +812,16 @@ class Streamer:
         of the processor.
         """
         stream = self._tokenize()
+        openings = self.prc.alphabet.openings
+        closings = self.prc.alphabet.closings
+        cache: tuple[Token, int] | None = None
         # Exhausting the stream
         while True:
             t = next(stream, None)
             # When the last token is reached, do the closing operations
             if t is None:
+                if cache is not None:
+                    raise ParsingFailure("Swapper left unclosed by the end of input")
                 self.complete()
                 return True
             self.t = t
@@ -768,10 +838,33 @@ class Streamer:
                     self.push(lvl)
             # Parsing content tokens while accounting for early & late breakers
             if t.base.asubcat == "content" or t.base.aclass == "wildcard":
-                self.account_breaker(late=False)
-                self.e = Element(t, level=0)
-                self.add()
-                self.account_breaker(late=True)
+                swapper = t.swapper
+                if swapper is None:
+                    self._parse_content(t)
+                elif cache is None:
+                    # Nothing held: the swapper must open a pair
+                    if swapper not in openings:
+                        raise ParsingFailure("Closing swapper with no open pair")
+                    cache = (t, openings[swapper])
+                else:
+                    # A token is held: only its closing complement may follow
+                    held, pair = cache
+                    if closings.get(swapper) != pair:
+                        raise ParsingFailure("Misplaced swapper")
+                    self._parse_content(t)
+                    self._parse_content(held)
+                    cache = None
+
+    def _parse_content(self, t: Token) -> None:
+        """Parses a single content (or wildcard) token as a language element,
+        accounting for early and late breakers.
+        """
+        self.t = t
+        self.account_breaker(late=False)
+        self.e = Element(t, level=0)
+        self.add()
+        self.account_breaker(late=True)
+        return
 
     def add(self) -> None:
         """Adds the current element to stack, parses and closes it."""
@@ -1477,6 +1570,7 @@ class Interpreter:
 
     def determine_ctype(self, tree: Tree) -> None:
         """Determines the composition type of the element recorded in the tree."""
+        population = tree._collect_population()
         # Try different types one by one
         # Types specific for the depth level go first, general types last
         ctypes = self.prc.dialect.ctypes[tree.level]
@@ -1497,19 +1591,15 @@ class Interpreter:
             if "crep" in ctypes[ctype]:
                 if tree.stance is None or tree.stance.rep != ctypes[ctype]["crep"]:
                     fit = False
-            # Every type has conditions for nodes of different ranks
+            # Every type has conditions on how many nodes of each rank are populated
             for r, rank in enumerate(ctypes[ctype]["ranks"]):
-                nodes = [n for n in tree.all_nodes if n.rank == r]
-                min_num = min([node.num for node in nodes])
-                # Conditions place limits on the number of nodes in the rank
-                # that have any content
                 for i, perm in enumerate(rank):
-                    hits = [n for n in nodes if n.num - min_num == i and n.content]
+                    num = population[r].get(i, 0)
                     conds = [
-                        perm not in ("*", "+", "-") and len(hits) > int(perm),
-                        perm not in ("*", "+", "-") and len(hits) == 0,
-                        perm == "+" and len(hits) == 0,
-                        perm == "-" and len(hits) != 0,
+                        perm not in ("*", "+", "-") and num > int(perm),
+                        perm not in ("*", "+", "-") and num == 0,
+                        perm == "+" and num == 0,
+                        perm == "-" and num != 0,
                     ]
                     if any(conds):
                         fit = False
@@ -1526,6 +1616,32 @@ class Interpreter:
         for node in [n for n in tree.all_nodes if n.complexes]:
             for c in node.complexes:
                 self.determine_ctype(c)
+
+        return
+
+    def determine_ptype(self, tree: Tree) -> None:
+        """Determines the permutation type of the elements recorded in the tree
+        from the presence of swappers on its terminal molar tokens. Illegal
+        swapper sequences are already rejected by the streamer, so the swapper
+        node indexes are simply matched against the dialect's permutation types.
+        """
+        swaps = tree._collect_swaps()
+        fits = [
+            name
+            for entry in self.prc.dialect.ptypes
+            for name, pdef in entry.items()
+            if {i for pair in pdef["swaps"] for i in pair} == swaps
+        ]
+        # The last fitting type wins (general types are listed first)
+        if fits:
+            tree.ptype = fits[-1]
+        else:
+            logger.warning(f"Undefined permutation type at level {tree.level}")
+
+        # Do the same for all embedded trees
+        for node in [n for n in tree.all_nodes if n.complexes]:
+            for c in node.complexes:
+                self.determine_ptype(c)
 
         return
 
@@ -1555,6 +1671,40 @@ class Interpreter:
                 self.interpret(c)
         return
 
+    def _type_table(self, tree: Tree, verbose: bool = False) -> Table:
+        """Builds a table of the tree's composition and permutation types, titled
+        with the word. Type names are looked up in the dialect's type list to
+        supply the (optional) description column.
+        """
+        table = Table(
+            title=f"[dim]'{tree.working_string}'[/dim]",
+            title_justify="left",
+            box=box.SIMPLE_HEAD,
+            highlight=True,
+            title_style="bold",
+        )
+        table.add_column("Type", style="cyan", no_wrap=True)
+        table.add_column("Argument", style="yellow")
+        if verbose:
+            table.add_column("Description", style="dim")
+        for category, name in (
+            ("Composition", tree.ctype),
+            ("Permutation", tree.ptype),
+        ):
+            record = next(
+                (
+                    t
+                    for t in self.prc.dialect.types
+                    if t.type == category and t.argument_name == name
+                ),
+                None,
+            )
+            row = [category, name or "Undefined"]
+            if verbose:
+                row.append(record.argument_description if record else "")
+            table.add_row(*row)
+        return table
+
     def describe(
         self,
         tree: Tree | int | None = None,
@@ -1578,10 +1728,7 @@ class Interpreter:
         featured = [n for n in nodes if n.feature]
 
         if rich:
-            indent = "  " * _depth
-            ctype = tree.ctype or "Undefined"
             table = Table(
-                title=f"{indent}{ctype}  [dim]'{tree.working_string}'[/dim]",
                 title_justify="left",
                 box=box.SIMPLE_HEAD,
                 highlight=True,
@@ -1607,7 +1754,7 @@ class Interpreter:
                     + ", ".join(str(n) for n in featureless)
                     + "[/dim]"
                 )
-            renderables: list = [table]
+            renderables: list = [self._type_table(tree, verbose), table]
             for node in [n for n in tree.all_nodes if n.complexes]:
                 for c in node.complexes:
                     renderables.append(
@@ -1615,7 +1762,7 @@ class Interpreter:
                     )
             return Group(*renderables)
         else:
-            logger.info(f"{_prefix} {tree.ctype} '{tree.working_string}'")
+            logger.info(f"{_prefix} {tree.ptype} {tree.ctype} '{tree.working_string}'")
             for node in featured:
                 msg = "%s> '%s' — %s: %s"
                 args = [
@@ -1661,9 +1808,12 @@ class Interpreter:
     def gloss(
         self,
         tree: Tree | int | None = None,
-    ) -> Table:
+        verbose: bool = False,
+    ) -> Group:
         """Iterates the terminal nodes of the tree and replaces the representations
-        of their contents with the gloss strings defined by their features.
+        of their contents with the gloss strings defined by their features. The
+        gloss table is preceded by a table of the tree's composition and
+        permutation types.
         """
         if tree is None:
             tree = self.prc.trees[0][-1]
@@ -1673,7 +1823,9 @@ class Interpreter:
         items = tree.get_interpretable_nodes(complexes=True)
         tokens = self._build_gloss_tokens(items)
 
-        return self._render_gloss_table(tokens, tree)
+        return Group(
+            self._type_table(tree, verbose), self._render_gloss_table(tokens, tree)
+        )
 
     def _build_gloss_tokens(self, items: list) -> list[tuple[str, str]]:
         """Converts a flat list of nodes (and nested lists for complexes) into
@@ -1715,11 +1867,8 @@ class Interpreter:
 
     def _render_gloss_table(self, tokens: list[tuple[str, str]], tree: Tree) -> Table:
         """Wraps a list of (form, gloss) pairs into a table."""
-        ctype = tree.ctype or "Undefined"
-        title = f"{ctype}  [dim]'{tree.working_string}'[/dim]"
 
         table = Table(
-            title=title,
             title_justify="left",
             box=box.SIMPLE_HEAD,
             show_header=False,
@@ -1727,6 +1876,7 @@ class Interpreter:
             title_style="bold",
             padding=(0, 1),
         )
+
         for _ in tokens:
             table.add_column(no_wrap=True)
 

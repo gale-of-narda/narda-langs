@@ -73,7 +73,7 @@ ctypes:
 ptypes:
 - Neutral:
     swaps: []
-- Concordant:
-    swaps: [ [ 3, 4 ] ]
-- Discordant:
-    swaps: [ [ 5, 6 ] ]
+- Encapsulation:
+    swaps: [ [ 2, 3 ] ]
+- Subsummation:
+    swaps: [ [ 4, 5 ] ]

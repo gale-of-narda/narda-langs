@@ -459,6 +459,7 @@ class Tree:
         self.nodes: list[Node] = [self.root]
         self.perms = None
         self.ctype = None
+        self.ptype = None
         self.stance = None
         self._populate(self.root)
 
@@ -645,6 +646,34 @@ class Tree:
                 ind += 1
 
         return out
+
+    def _collect_population(self) -> list[dict[int, int]]:
+        """For each rank, maps a node's position within the rank to the number of
+        content-bearing nodes (including compounds) at that position. The data the
+        composition types are matched against.
+        """
+        population: list[dict[int, int]] = []
+        ranks = max((n.rank for n in self.all_nodes), default=-1) + 1
+        for r in range(ranks):
+            nodes = [n for n in self.all_nodes if n.rank == r]
+            min_num = min(n.num for n in nodes)
+            counts: dict[int, int] = {}
+            for n in nodes:
+                if n.content:
+                    offset = n.num - min_num
+                    counts[offset] = counts.get(offset, 0) + 1
+            population.append(counts)
+        return population
+
+    def _collect_swaps(self) -> set[int]:
+        """The indexes of terminal nodes whose molar tokens bear a swapper. Only
+        their presence is detected, to be matched against the permutation types.
+        """
+        return {
+            n.ranknum
+            for n in self.all_nodes
+            if n.terminal and n.content and n.content[0].header.tok.swapper
+        }
 
     def set_element(self, e: Element) -> None:
         """Maps the element to the node addressed by its stance as well as

@@ -13,7 +13,7 @@ class Alphabet:
 
     bases: dict[str, dict]
     modifiers: dict
-    substitutions: dict[str, str]
+    substitutions: dict
 
     def __post_init__(self) -> None:
         self._build_dicts()
@@ -30,6 +30,10 @@ class Alphabet:
         self.embedders = self.bases["guiding"]["embedder"]
         self.breakers = self.modifiers["breaker"]
         self.swappers = self.modifiers.get("swapper", [])
+        # Free substitutions replace single characters; elongators replace a
+        # content character that repeats the previous one of the same class.
+        self.free = self.substitutions["free"]
+        self.elongators = self.substitutions["elongator"]
 
         # Groups that follow the level/quality/index layout: every base group
         # and the breaker modifiers. Swappers carry their own shape and are
@@ -79,6 +83,15 @@ class Alphabet:
                         "Quality": None if char in self.lookup else q,
                         "Index": p,
                     }
+
+        # Each swapper pair maps its opening character (the first member) and its
+        # closing character (the second) to the pair's index.
+        self.openings = {
+            next(iter(p[0].values())): i for i, p in enumerate(self.swappers)
+        }
+        self.closings = {
+            next(iter(p[1].values())): i for i, p in enumerate(self.swappers)
+        }
 
         return
 
@@ -158,8 +171,8 @@ class Dialect:
 
     ctypes: list
     ptypes: list
-    untyped: list[Feature]
-    typed: list[Feature]
+    features: list[Feature]
+    types: list[Type]
 
     def get_feature(
         self,
@@ -170,13 +183,13 @@ class Dialect:
         ctype: str | None,
     ) -> Feature | None:
         """Returns the feature described by the stances and character index,
-        or None if no feature is found. If content type is supplied, searches
-        the appropriate typed feature list first, then the untyped list
-        if no match is found.
+        or None if no feature is found. A feature bound to a content type matches
+        only when that type equals the supplied one; an untyped feature matches
+        regardless of the supplied content type.
         """
         feature_list = [
             f
-            for f in self.typed + self.untyped
+            for f in self.features
             if (f.ctype or ctype) == ctype and f.content_class == content_class
         ]
         for f in feature_list:
@@ -192,7 +205,6 @@ class Dialect:
 class Feature:
     """A holder for a feature with all the parameters that describe it."""
 
-    # None for untyped, str for typed features
     ctype: str | None
     pos: list[int]
     rep: list[int]
@@ -208,6 +220,21 @@ class Feature:
 
     def __repr__(self) -> str:
         return f"{self.function_name}: {self.argument_name}"
+
+
+@dataclass
+class Type:
+    """A holder for a composition or permutation type with its descriptive
+    metadata, mirroring the description fields of a feature.
+    """
+
+    type: str
+    priority: int
+    argument_name: str
+    argument_description: str
+
+    def __repr__(self) -> str:
+        return f"{self.type}: {self.argument_name}"
 
 
 @dataclass
@@ -291,6 +318,14 @@ class Token:
     def order(self) -> int:
         """The order of the token is the minimum of those of its symbols."""
         return min([self.base.order] + [m.order for m in self.modifiers])
+
+    @property
+    def swapper(self) -> str | None:
+        """The swapper character among the token's modifiers, if any."""
+        for mod in self.modifiers:
+            if mod.asubcat == "swapper":
+                return mod.content
+        return None
 
 
 @dataclass

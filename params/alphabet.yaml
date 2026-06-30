@@ -44,7 +44,12 @@ modifiers:
   - [ { 'C': 'ː' }, { 'V': '̈' } ]
 
 # Substitutions
-# Pairings of  chars to be replaced by the tokenizer and strings to replace them with
+# Rules for replacing certain chars with others
 # Only singular characters can be replaced in this way
 # Does not account for the decomposition of combined characters that is always performed
-substitutions: { ̂: ̈́, ̌: ̈̀, ̃: ̈̄, '''': ə, '>': '-', <: '-', '`': -ə, –: --, ',': ':', '?': ., '!': . }
+substitutions:
+  # Pairings of chars to be replaced by the tokenizer and strings to replace them with
+  free: { ̂: ̈́, ̌: ̈̀, ̃: ̈̄, '''': ə, '>': '-', <: '-', '`': -ə, –: --, ',': ':', '?': ., '!': . }
+  # Symbols to replace repeating sequences of the same content characters
+  elongator:
+    C: 'ː'

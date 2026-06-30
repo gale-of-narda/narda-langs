@@ -118,9 +118,10 @@ def describe(
 def gloss(
     lvl: Annotated[int, typer.Option(help="The level of the tree.")] = 0,
     num: Annotated[int, typer.Option(help="Ordinal number of the tree.")] = 0,
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
     tree = processor.trees[lvl][num]
-    gloss_string = processor.interpreter.gloss(tree)
+    gloss_string = processor.interpreter.gloss(tree, verbose=verbose)
     console.print(gloss_string)
     return
 
