@@ -215,3 +215,8 @@ install.bat
 nbook.ipynb
 docs/
 issues.md
+CLAUDE.md
+.gitignore
+.sonar
+.sonarlint
+.gitignore

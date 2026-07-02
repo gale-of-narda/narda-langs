@@ -1,4 +1,3 @@
-import json
 import logging
 import shlex
 from typing import Annotated
@@ -7,7 +6,7 @@ import typer
 from rich.console import Console
 from rich.logging import RichHandler
 
-from scripts.parser_procedure import Processor, StructureError
+from scripts.parser_procedure import Processor
 
 
 class ExitException(Exception):
@@ -65,7 +64,7 @@ def load(
     try:
         loaded = processor.loader.load(path)
         console.print(f"[green]Loaded {loaded}.[/green]")
-    except (StructureError, ValueError, FileNotFoundError, json.JSONDecodeError) as e:
+    except (ValueError, FileNotFoundError) as e:
         console.print(f"[bold red]Error:[/] {e}")
     return
 
@@ -76,7 +75,7 @@ def set(name: str, value: str) -> None:
     try:
         processor.loader.set(name, value)
         console.print(f"[green]Set '{name}'.[/green]")
-    except (StructureError, ValueError, KeyError, TypeError, IndexError) as e:
+    except (ValueError, KeyError, TypeError, IndexError) as e:
         console.print(f"[bold red]Error:[/] {e}")
     return
 
@@ -87,7 +86,7 @@ def reset(name: str) -> None:
     try:
         processor.loader.reset(name)
         console.print(f"[green]Reset '{name}'.[/green]")
-    except (StructureError, ValueError, FileNotFoundError, json.JSONDecodeError) as e:
+    except (ValueError, FileNotFoundError) as e:
         console.print(f"[bold red]Error:[/] {e}")
     return
 

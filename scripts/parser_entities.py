@@ -41,9 +41,8 @@ class Mapping:
     def enumerate_elems(
         self, num_key: list[int], elems: list[Element], d: int, preceding: bool = False
     ) -> dict[str, list[int]]:
-        """Returns a list of indices of the given list of elements that conform
-        to the given key, arranging them into a dict of lists where the keys are
-        the reps before d.
+        """Returns a dict mapping each rep-before-d key to the list of indices of
+        the given elements that conform to the given key.
 
         If preceding is True, finds elements with key less than the given one.
         """
@@ -75,10 +74,8 @@ class Dichotomy:
         self.skip: bool = False
         self.split: bool = False
         self._pointer: int | None = None
-        self.masks: tuple[Mask]
         self.left: Mask
         self.right: Mask
-        self.key: list[str]
         return
 
     def __repr__(self) -> str:
@@ -301,12 +298,12 @@ class Mask:
         if ignore_pos:
             by_class = any(aclass in m for lits in self.literals for m in lits)
             by_val = any(lit in m for lits in self.literals for m in lits)
-            return max(by_class, by_val)
+            return by_class or by_val
         else:
             target_pos = self.move(pos)[0]
             by_class = any(aclass in m for m in self.literals[target_pos])
             by_val = any(lit in m for m in self.literals[target_pos])
-            return max(by_class, by_val)
+            return by_class or by_val
 
     def subtract(self, pos_delta: int = 0, rep_delta: int = 0) -> None:
         """Subtracts the given number of rep and pos, limited by zero."""
@@ -457,10 +454,9 @@ class Tree:
         self._depth: int = depth
         self.root: Node = Node()
         self.nodes: list[Node] = [self.root]
-        self.perms = None
-        self.ctype = None
-        self.ptype = None
-        self.stance = None
+        self.ctype: str | None = None
+        self.ptype: str | None = None
+        self.stance: Stance | None = None
         self._populate(self.root)
 
     def __repr__(self) -> str:
@@ -556,6 +552,13 @@ class Tree:
         nodes: list[Node] = self.root.downstream
         return sorted(nodes, key=lambda node: node.num)
 
+    @property
+    def complexes(self) -> list[Tree]:
+        """The trees embedded as complexes on the nodes of this tree, in node
+        order. Used to recurse the same operation into embedded trees.
+        """
+        return [c for n in self.all_nodes if n.complexes for c in n.complexes]
+
     def draw(
         self,
         node: Node | None = None,
@@ -635,7 +638,7 @@ class Tree:
             key=lambda node: node.content[0].order,
         )
 
-        out = [n for n in sorted_nodes]
+        out = list(sorted_nodes)
         if complexes:
             ind = 0
             for node in sorted_nodes:
@@ -653,9 +656,10 @@ class Tree:
         composition types are matched against.
         """
         population: list[dict[int, int]] = []
-        ranks = max((n.rank for n in self.all_nodes), default=-1) + 1
+        all_nodes = self.all_nodes
+        ranks = max((n.rank for n in all_nodes), default=-1) + 1
         for r in range(ranks):
-            nodes = [n for n in self.all_nodes if n.rank == r]
+            nodes = [n for n in all_nodes if n.rank == r]
             min_num = min(n.num for n in nodes)
             counts: dict[int, int] = {}
             for n in nodes:
@@ -710,7 +714,7 @@ class Node:
         self.compounds: list[Node] = []
         self.complexes: list[Tree] = []
         self.content: list[Element] = []
-        self.feature: Feature
+        self.feature: Feature | None = None
         return
 
     def __repr__(self) -> str:

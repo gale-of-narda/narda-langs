@@ -5,7 +5,9 @@ component of the parser.
 import logging
 import os
 import sys
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -18,42 +20,18 @@ class ParsingFailure(Exception):
         return
 
 
-class StructureError(Exception):
-    """Raised when a parameter fails schema validation. A shape problem means the
-    parameter's structure is incongruent with the rest of the parametrization; a
-    type problem means its content type is wrong. A failure to parse the YAML
-    itself raises a plain ValueError instead.
-    """
-
-    _SOURCES = {
-        "rules_general": "general rules",
-        "rules_special": "special rules",
-        "alphabet": "alphabet",
-        "dialect": "dialect",
-    }
-
-    @classmethod
-    def shape(cls, param: str, source: str, problem: str) -> StructureError:
-        """Builds an error for a structural (shape) problem."""
-        return cls(
-            f"Incongruent parametrization: {param} from "
-            f"{cls._SOURCES.get(source, source)} {problem}"
-        )
-
-    @classmethod
-    def wrong_type(cls, param: str, source: str, problem: str) -> StructureError:
-        """Builds an error for a content-type problem."""
-        return cls(
-            f"Wrong parameter type: parameter {param} from "
-            f"{cls._SOURCES.get(source, source)} {problem}"
-        )
+def is_int(value: object) -> bool:
+    """True if value is an integer (booleans excluded)."""
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
-def is_int_list(value: object) -> bool:
-    """True if value is a list of integers (booleans excluded)."""
-    return isinstance(value, list) and all(
-        isinstance(x, int) and not isinstance(x, bool) for x in value
-    )
+def flatten(nested: object) -> Iterator[Any]:
+    """Yields the non-list leaf values of an arbitrarily nested list."""
+    if isinstance(nested, list):
+        for item in nested:
+            yield from flatten(item)
+    else:
+        yield nested
 
 
 def lemb_rank_sizes(struct_level: list[int]) -> list[int]:
