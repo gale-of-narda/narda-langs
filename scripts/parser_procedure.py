@@ -3,7 +3,7 @@ import csv
 import logging
 import os
 import unicodedata
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Iterator
 from dataclasses import replace
 from pathlib import Path
 
@@ -18,6 +18,7 @@ from scripts.parser_dataclasses import (
     GeneralRules,
     SpecialRules,
     Stance,
+    Symbol,
     Token,
     Type,
 )
@@ -67,11 +68,10 @@ class Processor:
         # Resetting the parameters
         self.mapping = Mapping(self.levels)
         self.trees = [[] for _ in self.levels]
-        self.streamer.instr = instr
         self.masker.construct()
         # Parsing the string
         try:
-            self.streamer.feed()
+            self.streamer.feed(instr)
         except ParsingFailure:
             logger.info(f"Failed to parse '{instr}'")
             return False
@@ -319,253 +319,263 @@ class Loader:
 
 
 class Streamer:
-    """Takes an input string and creates a stream of tokens wrapped into
-    elements to be parsed, depth and level structure accounted.
+    """Takes an input string and creates a stream of tokens to be parsed,
+    dispatching content tokens to element parsing and guiding tokens to the
+    depth and level structure operations.
     """
 
     def __init__(self, prc: Processor) -> None:
         self.prc = prc
-        self.instr: str = ""
-        self.e: Element
-        self.t: Token
         return
 
-    def _tokenize(self) -> Generator:
-        """Performs the splitting, alphabetic filtering, symbolization,
-        and tokenization of the input string.
+    def feed(self, instr: str) -> bool:
+        """Processes the stream of tokens according to their alphabetic
+        parameters. Content tokens are parsed as language elements, guiding
+        tokens steer the depth and level structure of the parsing.
         """
-        t: Token | None = None
-        prev: str | None = None  # previous character, for detecting repeats
-        cache: str | None = None  # a content character replaced by an elongator
-        # Precomposed characters are decomposed (NFC)
-        linstr = [ch.lower() for ch in unicodedata.normalize("NFD", self.instr)]
-        for i, ch in enumerate(linstr):
-            # Replacing a character with its free substitution
-            free = self.prc.alphabet.free
-            if ch in free:
-                sub = free[ch]
-                # If the replacement consists of more than one symbol,
-                # add the additional symbols to the string
-                for j, extra in enumerate(sub[1:]):
-                    linstr.insert(i + j + 1, extra)
-                ch = sub[0]
-            # Elongating: a content character repeating the previous one of its
-            # class is replaced by its elongator. While the same character keeps
-            # repeating it is dropped; any other character clears the cache.
-            elongators = self.prc.alphabet.elongators
-            info = self.prc.alphabet.lookup.get(ch)
-            cls = info.aclass if info and info.asubcat == "content" else None
-            if cache is not None:
-                if ch == cache:
-                    continue
-                cache = None
-            if cls is not None and cls in elongators and ch == prev:
-                cache = ch
-                ch = elongators[cls]
-            prev = cache if cache is not None else ch
-            # Wrapping the char into a symbol if it is alphabetic
-            if ch not in self.prc.alphabet.lookup:
-                continue
-            params = self.prc.alphabet.lookup[ch]
-            s = replace(params, order=i)
-            # Wrapping the base symbol into a token (if base)
-            # or modifying the previous one (if modifier)
-            # The token is yielded as the next base symbol is read
-            # or at the end of the string
-            if isinstance(t, Token):
-                if s.acat == "Base":
-                    yield t
-                elif s.acat == "Modifier" and s.aclass == t.base.aclass:
-                    t.modifiers.append(s)
-            if s.acat == "Base":
-                t = Token(base=s)
-
-        if isinstance(t, Token) and s.aclass != "separator":
-            yield t
-
-    def feed(self) -> bool:
-        """Processes the stream of tokens according to their alphabetic parameters.
-        Content tokens are parsed as language elements, others set the parameters
-        of the processor.
-        """
-        stream = self._tokenize()
-        openings = self.prc.alphabet.openings
-        closings = self.prc.alphabet.closings
-        cache: tuple[Token, int] | None = None
-        # Exhausting the stream
-        while True:
-            t = next(stream, None)
-            # When the last token is reached, do the closing operations
-            if t is None:
-                if cache is not None:
-                    raise ParsingFailure("Swapper left unclosed by the end of input")
-                self.complete()
-                return True
-            self.t = t
-            lvl = t.base.level
+        held: tuple[Token, int] | None = None
+        for t in self._tokenize(instr):
             if t.base.asubcat == "guiding":
-                # Separating intervals of elements
-                if t.base.aclass == "separator":
-                    self.separate(lvl)
-                # Decreasing depth of complex embedding
-                elif t.is_popper(lvl) and self.prc.mapping.cur_dpt[t.base.level] > 0:
-                    self.pop(lvl)
-                # Increasing depth of complex embedding
-                elif t.is_pusher(lvl):
-                    self.push(lvl)
-            # Parsing content tokens while accounting for early & late breakers
+                self._steer(t)
             if t.base.asubcat == "content" or t.base.aclass == "wildcard":
-                swapper = t.swapper
-                if swapper is None:
-                    self._parse_content(t)
-                elif cache is None:
-                    # Nothing held: the swapper must open a pair
-                    if swapper not in openings:
-                        raise ParsingFailure("Closing swapper with no open pair")
-                    cache = (t, openings[swapper])
-                else:
-                    # A token is held: only its closing complement may follow
-                    held, pair = cache
-                    if closings.get(swapper) != pair:
-                        raise ParsingFailure("Misplaced swapper")
-                    self._parse_content(t)
-                    self._parse_content(held)
-                    cache = None
+                held = self._pair_swapper(t, held)
+        if held is not None:
+            raise ParsingFailure("Swapper left unclosed by the end of input")
+        self._complete()
+        return True
+
+    def _steer(self, t: Token) -> None:
+        """Routes a guiding token to the structure operations: a separator
+        seals its level, a popper closes and a pusher opens a complex
+        embedding, each sealing the levels below first.
+        """
+        lvl = t.base.level
+        if t.base.aclass == "separator":
+            self._seal(lvl)
+        elif t.is_popper(lvl) and self.prc.mapping.cur_dpt[lvl] > 0:
+            if lvl > 0 and self.prc.mapping.get_interval(lvl - 1):
+                self._seal(lvl - 1)
+            self._close_complexes(lvl, single=True)
+        elif t.is_pusher(lvl):
+            if lvl > 0:
+                self._seal(lvl - 1)
+            self._open_complex(lvl)
+        return
+
+    def _pair_swapper(
+        self, t: Token, held: tuple[Token, int] | None
+    ) -> tuple[Token, int] | None:
+        """Parses an unswapped content token right away. A token opening a
+        swapper pair is held back and parsed after the token that closes the
+        pair, which must be the next swapped token in the stream.
+        """
+        swapper = t.swapper
+        if swapper is None:
+            self._parse_content(t)
+            return held
+        if held is None:
+            openings = self.prc.alphabet.openings
+            if swapper not in openings:
+                raise ParsingFailure("Closing swapper with no open pair")
+            return t, openings[swapper]
+        token, pair = held
+        if self.prc.alphabet.closings.get(swapper) != pair:
+            raise ParsingFailure("Misplaced swapper")
+        self._parse_content(t)
+        self._parse_content(token)
+        return None
 
     def _parse_content(self, t: Token) -> None:
         """Parses a single content (or wildcard) token as a language element,
         accounting for early and late breakers.
         """
-        self.t = t
-        self.account_breaker(late=False)
-        self.e = Element(t, level=0)
-        self.add()
-        self.account_breaker(late=True)
+        self._account_breakers(t, late=False)
+        self._add(Element(t, level=0))
+        self._account_breakers(t, late=True)
         return
 
-    def add(self) -> None:
-        """Adds the current element to stack, parses and closes it."""
-        lvl = self.e.level
-        dpt = self.prc.mapping.cur_dpt[self.e.level]
-        self.e.stance = Stance(depth=dpt)
-        self.prc.mapper.close(self.e)
-        self.parse()
-        self.prc.mapping.get_stack(lvl).append(self.e)
-        return
-
-    def separate(self, lvl: int, deep: bool = False) -> None:
-        """Wraps the interval of elements limited by the current border position
-        into an element of the higher level and adds it to corresponding stack.
+    def _tokenize(self, instr: str) -> Iterator[Token]:
+        """Groups the symbolized characters of the input string into tokens:
+        a base symbol starts a token and the following modifiers of its class
+        attach to it. A trailing separator token is dropped.
         """
-        for level in self.prc.levels:
-            if (level == lvl or deep) and level <= self.prc.last_level:
-                # If the current depth of embedding is above zero on the same level,
-                # pop until it reaches zero
-                if level > 0:
-                    self.pop(level, deep=True)
-                interval = self.prc.mapping.get_interval(level)
-                if interval and level < len(self.prc.levels) - 1:
-                    self.e = Element(interval, level=level + 1)
-                    self.add()
-                    self.prc.masker.construct(level)
-                    self.prc.mapping.update_interval(level)
-        return
+        t: Token | None = None
+        s: Symbol | None = None
+        for s in self._symbolize(self._elongate(self._normalize(instr))):
+            if s.acat == "Base":
+                if t is not None:
+                    yield t
+                t = Token(base=s)
+            elif s.acat == "Modifier" and t is not None and s.aclass == t.base.aclass:
+                t.modifiers.append(s)
+        if t is not None and s is not None and s.aclass != "separator":
+            yield t
 
-    def pop(self, lvl: int, deep: bool = False) -> None:
-        """Decreases the current depth of complex embedding, wraps the current
-        stack interval into an element of the same level and parses it.
+    def _symbolize(self, chars: Iterator[tuple[int, str]]) -> Iterator[Symbol]:
+        """Wraps every alphabetic character into a symbol carrying its
+        alphabet parameters and stream position; the rest are dropped.
         """
-        # Perform the separation on the previous level if it hasn't already been
-        if lvl > 0 and self.prc.mapping.get_interval(lvl - 1):
-            self.separate(lvl - 1)
-        while self.prc.mapping.cur_dpt[lvl] > 0:
-            # Popping only operates on the latest item in the element buffer,
-            # which must also be a list of elements
-            content = self.prc.mapping.elems[lvl]
-            for _ in range(self.prc.mapping.cur_dpt[lvl]):
-                if not isinstance(content[-1], list):
-                    return
-                elif len(content[-1]) == 0:
-                    del content[-1]
-                    return
-                content = content[-1]
+        lookup = self.prc.alphabet.lookup
+        for i, ch in chars:
+            params = lookup.get(ch)
+            if params is not None:
+                yield replace(params, order=i)
 
-            e = Element(content, level=lvl)
-            e.stance = Stance(depth=self.prc.mapping.cur_dpt[lvl] - 1)
-            self.e = e
-            self.prc.mapper.close(e)
-            self.prc.masker.construct(lvl, self.prc.mapping.cur_dpt[lvl])
-            self.prc.mapping.cur_breaks[lvl][self.prc.mapping.cur_dpt[lvl]] = 0
-
-            target = self.prc.mapping.elems[lvl]
-            for _ in range(self.prc.mapping.cur_dpt[lvl] - 1):
-                target = target[-1]
-            target[-1] = e
-
-            self.parse()
-            self.prc.mapping.cur_dpt[lvl] -= 1
-
-            dpt = self.prc.mapping.cur_dpt[lvl]
-            logger.debug(f"[L{lvl}|D{dpt + 1}] Depth at level {lvl} decreased to {dpt}")
-
-            if not deep:
-                break
-
-        return
-
-    def push(self, lvl: int) -> None:
-        """Increases the current depth of complex embedding.
-        Performs separation on the previous level if necessary.
+    def _elongate(self, chars: Iterator[tuple[int, str]]) -> Iterator[tuple[int, str]]:
+        """Replaces a content character that repeats the previous one of its
+        class with the class elongator and drops the further repeats.
         """
-        if lvl > 0:
-            self.separate(lvl - 1)
-        self.prc.mapping.get_stack(lvl).append([])
-        self.prc.mapping.cur_dpt[lvl] += 1
-        if self.prc.mapping.cur_dpt[lvl] >= len(self.prc.mapping.cur_breaks[lvl]):
-            self.prc.mapping.cur_breaks[lvl].append(0)
-        dpt = self.prc.mapping.cur_dpt[lvl]
-        logger.debug(f"[L{lvl}|D{dpt - 1}] Depth at level {lvl} increased to {dpt}")
-        return
+        elongators = self.prc.alphabet.elongators
+        lookup = self.prc.alphabet.lookup
+        prev: str | None = None
+        cache: str | None = None  # a content character replaced by an elongator
+        for i, ch in chars:
+            if cache is not None:
+                if ch == cache:
+                    continue
+                cache = None
+            info = lookup.get(ch)
+            cls = info.aclass if info and info.asubcat == "content" else None
+            if cls is not None and cls in elongators and ch == prev:
+                cache = ch
+                ch = elongators[cls]
+            prev = cache if cache is not None else ch
+            yield i, ch
 
-    def complete(self) -> None:
-        """Wraps up the stream by performing final popping and separation.
-        Necessary in case the corresponding tokens were omitted by the end
-        of the input string.
+    def _normalize(self, instr: str) -> Iterator[tuple[int, str]]:
+        """Lowercases and NFD-decomposes the input string and applies the free
+        substitutions, yielding every character with its stream position.
         """
-        for level in self.prc.levels:
-            if level <= self.prc.last_level:
-                self.pop(level, deep=True)
-        self.separate(self.prc.last_level, deep=True)
+        free = self.prc.alphabet.free
+        i = 0
+        for ch in (c.lower() for c in unicodedata.normalize("NFD", instr)):
+            for sub in free.get(ch, ch):
+                yield i, sub
+                i += 1
+
+    def _add(self, e: Element) -> None:
+        """Stances the given element at the current depth of its level,
+        closes and fits it, and appends it to the corresponding stack.
+        """
+        e.stance = Stance(depth=self.prc.mapping.cur_dpt[e.level])
+        self.prc.mapper.close(e)
+        self._fit(e)
+        self.prc.mapping.get_stack(e.level).append(e)
         return
 
-    def account_breaker(self, late: bool) -> None:
-        """Scans the modifiers of the current token for late or early breakers
+    def _fit(self, e: Element) -> None:
+        """Passes the given element to the mapper method that determines its
+        dichotomic stance.
+        """
+        lvl = e.level
+        # Skipping levels beyond the set maximum
+        if self.prc.max_level is not None and self.prc.max_level < lvl:
+            return
+        # Elements with lists of elements as content must have heads
+        if not e.molar:
+            num_lvl = lvl - 1 if lvl > e.content[0].level else lvl
+            e.set_head(self.prc.grules.heads[num_lvl], fallback=True)
+        self.prc.mapper.determine_stance(e)
+        dpt = e.stance.depth
+        logger.debug(f"[L{lvl}|D{dpt}] Fit '{e}' with stance {e.stance}")
+        return
+
+    def _account_breakers(self, t: Token, late: bool) -> None:
+        """Scans the modifiers of the given token for late or early breakers
         and increases the current breaker values as needed.
         """
-        lvl = self.t.base.level
+        lvl = t.base.level
         dpt = self.prc.mapping.cur_dpt[lvl]
-        for mod in self.t.modifiers:
+        for mod in t.modifiers:
             if mod.asubcat == "breaker" and mod.quality == int(late):
                 self.prc.mapping.cur_breaks[lvl][dpt] += mod.index + 1
                 brk = self.prc.mapping.cur_breaks[lvl][dpt]
                 logger.debug(f"[L{lvl}|D{dpt}] Breaker count increased to {brk}")
         return
 
-    def parse(self) -> None:
-        """Passes the current element to the mapper method that determines
-        its dichotomic stance.
+    def _seal(self, lvl: int) -> None:
+        """Wraps up the given level together with the levels it builds on:
+        starting from the lowest level with a pending interval, closes the
+        open complexes and wraps the interval of every level bottom-up, so
+        that the given level continues from completed lower-level elements.
         """
-        lvl = self.e.level
-        # Skipping levels beyond the set maximum
-        if self.prc.max_level is not None and self.prc.max_level < lvl:
+        if lvl > self.prc.last_level:
             return
-        # Elements with lists of elements as content must have heads
-        if not self.e.molar:
-            num_lvl = lvl - 1 if lvl > self.e.content[0].level else lvl
-            self.e.set_head(self.prc.grules.heads[num_lvl], fallback=True)
-        self.prc.mapper.determine_stance(self.e)
-        dpt = self.e.stance.depth
-        logger.debug(f"[L{lvl}|D{dpt}] Fit '{self.e}' with stance {self.e.stance}")
+        floor = lvl
+        while floor > 0 and self.prc.mapping.get_interval(floor - 1):
+            floor -= 1
+        for level in range(floor, lvl + 1):
+            if level > 0:
+                self._close_complexes(level)
+            self._wrap_interval(level)
+        return
+
+    def _wrap_interval(self, lvl: int) -> None:
+        """Wraps the pending interval of elements at the given level into an
+        element of the higher level, adds it to the corresponding stack, and
+        starts a new interval.
+        """
+        interval = self.prc.mapping.get_interval(lvl)
+        if interval and lvl < len(self.prc.levels) - 1:
+            self._add(Element(interval, level=lvl + 1))
+            self.prc.masker.construct(lvl)
+            self.prc.mapping.update_interval(lvl)
+        return
+
+    def _open_complex(self, lvl: int) -> None:
+        """Increases the current depth of complex embedding at the given
+        level by opening a new element buffer on its stack.
+        """
+        m = self.prc.mapping
+        m.get_stack(lvl).append([])
+        m.cur_dpt[lvl] += 1
+        if m.cur_dpt[lvl] >= len(m.cur_breaks[lvl]):
+            m.cur_breaks[lvl].append(0)
+        dpt = m.cur_dpt[lvl]
+        logger.debug(f"[L{lvl}|D{dpt - 1}] Depth at level {lvl} increased to {dpt}")
+        return
+
+    def _close_complexes(self, lvl: int, single: bool = False) -> None:
+        """Closes the open complex embeddings at the given level, one (single)
+        or all of them: wraps the deepest pending complex into an element,
+        fits it in place of its content, and decreases the current depth.
+        """
+        m = self.prc.mapping
+        while m.cur_dpt[lvl] > 0:
+            # Closing only operates on the latest item in the element buffer,
+            # which must also be a list of elements
+            parent = content = m.elems[lvl]
+            for _ in range(m.cur_dpt[lvl]):
+                if not isinstance(content[-1], list):
+                    return
+                if len(content[-1]) == 0:
+                    del content[-1]
+                    return
+                parent, content = content, content[-1]
+
+            e = Element(content, level=lvl)
+            e.stance = Stance(depth=m.cur_dpt[lvl] - 1)
+            self.prc.mapper.close(e)
+            self.prc.masker.construct(lvl, m.cur_dpt[lvl])
+            m.cur_breaks[lvl][m.cur_dpt[lvl]] = 0
+            parent[-1] = e
+            self._fit(e)
+            m.cur_dpt[lvl] -= 1
+
+            dpt = m.cur_dpt[lvl]
+            logger.debug(f"[L{lvl}|D{dpt + 1}] Depth at level {lvl} decreased to {dpt}")
+            if single:
+                break
+        return
+
+    def _complete(self) -> None:
+        """Wraps up the stream by closing and sealing every level bottom-up.
+        Necessary in case the corresponding tokens were omitted by the end
+        of the input string.
+        """
+        for level in range(self.prc.last_level + 1):
+            self._close_complexes(level)
+            self._wrap_interval(level)
         return
 
 
@@ -728,103 +738,168 @@ class Mapper:
 
     def __init__(self, prc: Processor) -> None:
         self.prc: Processor = prc
-        self.e: Element
         return
 
-    def _decide_dichotomy(self, dich: Dichotomy, forbid_shift: bool = False) -> bool:
-        """Produces the decision for the current element and dichotomy, linking
+    def determine_stance(self, e: Element) -> bool:
+        """Produces the stance for the given element by deciding the
+        dichotomies of its level one by one.
+        """
+        for _ in range(sum(self.prc.grules.struct[e.level])):
+            dich = self.prc.masker.get_dichs(e.stance, e.level)[0]
+            if not self._decide_dichotomy(e, dich):
+                raise ParsingFailure(f"Failed to parse '{e}'")
+        return True
+
+    def close(self, e: Element) -> None:
+        """Closes the dichotomies corresponding to the given element's
+        content and applies special rules to validate it.
+        """
+        if e.molar:
+            return
+        if not self._close_dichotomies(e):
+            raise ParsingFailure("Failed to close the dichotomies")
+
+        if not self._validate_mapping(e):
+            raise ParsingFailure("Failed to validate the mapping")
+
+        return
+
+    def _decide_dichotomy(self, e: Element, dich: Dichotomy) -> bool:
+        """Produces the decision for the given element and dichotomy, linking
         the former to either first or second mask of the latter.
         """
-        lvl, dpt = self.e.level, self.e.stance.depth
-        P = f"[L{lvl}|D{dpt}]"
-        # Conditions of fit for the 1st and 2nd masks
-        conds = [
-            any((dich.pointer != 1, not dich.ret)),
-            any((dich.pointer == 0, not dich.skip)),
-        ]
-        # Results of fit for the masks
+        lvl, dpt = e.level, e.stance.depth
         comp0, comp1 = (
-            dich.masks[0].compare(self.e, dich.split),
-            dich.masks[1].compare(self.e, dich.split),
+            dich.masks[0].compare(e, dich.split),
+            dich.masks[1].compare(e, dich.split),
         )
-        fit = None
-        # Skip to the second mask if the breaker count is positive
+        # A positive breaker count skips to the second mask permanently
         if self.prc.mapping.cur_breaks[lvl][dpt] > 0:
             self.prc.mapping.cur_breaks[lvl][dpt] -= 1
             if not comp1:
                 return False
-            # Breaking is permanent, so fitting to the first mask is now forbidden
             dich.masks[0].freeze = True
             fit = 1
-
-        # Determine the fit the normal way
-        if not fit:
-            # If both masks are fitting, choose the first one unless
-            # it is the only one that increases rep
-            if conds[0] and comp0 and conds[1] and comp1:
-                if comp1[1] == dich.masks[1].rep and comp0[1] > dich.masks[0].rep:
-                    fit = 1
-                else:
-                    fit = 0
-            # First mask fitting (the second one wasn't fit OR ret is not forbidden)
-            elif conds[0] and comp0:
-                fit = 0
-            # Second mask fitting (the first one wasn't fit OR skip is not forbidden)
-            elif conds[1] and comp1:
-                fit = 1
-            # Otherwise and if the dich is non-binary, perform a shift and try again
-            elif dich.nb and not forbid_shift:
+        else:
+            fit = self._choose_fit(dich, comp0, comp1)
+            # If nothing fits a non-binary dich, shift its mappings and retry
+            if fit is None and dich.nb:
                 self._shift_nonbinary_mappings(dich, invert=True, force=True)
-                return self._decide_dichotomy(dich, forbid_shift=True)
-            # If all fails
-            else:
-                logger.warning(f"{P} Could not decide {dich} for '{self.e}'")
+                comp0, comp1 = (
+                    dich.masks[0].compare(e, dich.split),
+                    dich.masks[1].compare(e, dich.split),
+                )
+                fit = self._choose_fit(dich, comp0, comp1)
+            if fit is None:
+                logger.warning(f"[L{lvl}|D{dpt}] Could not decide {dich} for '{e}'")
                 return False
 
         # Attempt closure if the obtained fit flips the pointer to 1 permanently
         # Makes sense only for return-restricted, non-terminal dichs
-        if all([dich.ret, not dich.terminal, (dich.pointer or 0) != fit]):
-            closure = self._close_dichotomies(dich)
-            if not closure:
-                logger.warning(f"{P} Could not close {dich}")
+        if dich.ret and not dich.terminal and (dich.pointer or 0) != fit:
+            if not self._close_dichotomies(e, dich):
+                logger.warning(f"[L{lvl}|D{dpt}] Could not close {dich}")
                 return False
 
+        self._commit_fit(e, dich, fit, comp0 if fit == 0 else comp1)
+        return True
+
+    def _choose_fit(
+        self,
+        dich: Dichotomy,
+        comp0: tuple[int | None, int] | None,
+        comp1: tuple[int | None, int] | None,
+    ) -> int | None:
+        """Selects the mask of the dichotomy that the given comparisons allow
+        fitting to, or None if neither mask both permits and fits.
+        """
+        # Returning to the first mask of a pointed ret-dichotomy is forbidden;
+        # skipping to the second mask is only allowed right after the first
+        allow0 = dich.pointer != 1 or not dich.ret
+        allow1 = dich.pointer == 0 or not dich.skip
+        if allow0 and comp0 and allow1 and comp1:
+            # Choose the first mask unless it is the only one increasing rep
+            if comp1[1] == dich.masks[1].rep and comp0[1] > dich.masks[0].rep:
+                return 1
+            return 0
+        if allow0 and comp0:
+            return 0
+        if allow1 and comp1:
+            return 1
+        return None
+
+    def _commit_fit(
+        self,
+        e: Element,
+        dich: Dichotomy,
+        fit: int,
+        comp: tuple[int | None, int] | None,
+    ) -> None:
+        """Records the fit: points the dichotomy at the chosen mask, applies
+        the comparison movement to it, and appends the resulting pos and rep
+        digits to the element's stance.
+        """
         dich.pointer = fit
         old_mask = f"{dich.masks[fit]}"
 
-        # Prepare the decision
-        comp = comp0 if fit == 0 else comp1
         assert comp is not None  # the chosen mask had a fit
-        self.prc.masker.set_dichotomy(dich, comp, lvl)
+        self.prc.masker.set_dichotomy(dich, comp, e.level)
         pos = fit if not dich.rev else 1 - fit
         rep = dich.masks[fit].rep
 
         new_mask = f"{dich.masks[fit]}"
         num_strings = ["1st", "2nd"]
-        content = f"{P} Fitting '{self.e}' to the {num_strings[fit]}"
+        lvl, dpt = e.level, e.stance.depth
+        content = f"[L{lvl}|D{dpt}] Fitting '{e}' to the {num_strings[fit]}"
         if dich.split:
             logger.debug(f"{content} mask {new_mask}")
         else:
             logger.debug(f"{content} mask {old_mask} → {new_mask}")
 
-        self.e.stance.pos.append(pos)
-        self.e.stance.rep.append(rep)
+        e.stance.pos.append(pos)
+        e.stance.rep.append(rep)
+        return
 
-        return True
+    def _close_dichotomies(self, e: Element, dich: Dichotomy | None = None) -> bool:
+        """For dichotomies downstream of the given dichotomy, performs
+        the finalizing operations: shift the mappings for the non-binary ones,
+        add neutral elements as needed for the terminal ones.
+
+        If no dichotomy is given, starts from the last fitted branch
+        of the topmost dichotomy for the element's content.
+        """
+        if dich is None:
+            content = e.content
+            level, depth = content[0].level, content[0].stance.depth
+            dich = self.prc.masker.get_dichs(Stance(depth=depth), level)[0]
+        else:
+            level, depth = dich.level, dich.depth
+        res = True
+        stance = Stance(pos=dich.masks[dich.pointer or 0].num_key, depth=depth)
+        dichs = self.prc.masker.get_dichs(stance, level)
+        invert = bool(dich.pointer or 0)
+
+        for cdich in dichs:
+            if cdich.nb:
+                res = res and self._shift_nonbinary_mappings(cdich, invert=invert)
+            if cdich.terminal:
+                res = res and self._fill_empty_terminals(e, cdich)
+
+        return res
 
     def _shift_nonbinary_mappings(
         self, dich: Dichotomy, invert: bool = False, force: bool = False
     ) -> bool:
-        """Shifts the mappings of the elements in the given list (or in the
-        current stack if none are given) from the first to the second mask
-        of the dichotomy (or vice versa if invert is True) continuously slot by slot
-        as long as the shift produces a valid mapping.
+        """Shifts the mappings of the elements in the current stack from the
+        first to the second mask of the dichotomy (or vice versa if invert is
+        True) continuously slot by slot as long as the shift produces a valid
+        mapping.
+
+        A shift is only possible if the target mask has an empty slot.
+        Equivalent mappings are shifted together or not at all, compounds
+        from closest to farthest to the target mask, and only if they fit
+        (given lembs and perms).
         """
-        # Shift is only possible if the target mask has an empty slot.
-        # Equivalent mappings are shifted together or not at all,
-        # compounds from closest to farthest to the target mask
-        # and only if they fit (given lembs and perms).
-        # Get keys for both masks
         level = dich.level
         mapping = self.prc.mapping
         elems = mapping.get_stack(level, interval=True)
@@ -849,28 +924,17 @@ class Mapper:
             slot_in_process = False
             if num > 0:
                 for i in matches_from[slot]:
-                    old_stance = str(elems[i].stance)
-                    new_stance = elems[i].stance.copy()
-                    new_stance.pos[dich.d] = mask_to.num_key[-1]
-                    new_stance.rep[dich.d] = mask_to.rep + n
-                    fit = self._fit_element(elems[i], new_stance, dich.d)
-                    if fit:
-                        dpt = elems[i].stance.depth
-                        logger.debug(
-                            f"[L{level}|D{dpt}] Shifted {elems[i]} from "
-                            f"{old_stance} to {new_stance}"
-                        )
+                    if self._shift_element(elems[i], dich, mask_to, n):
                         slot_in_process = True
                         elems_shifted += 1
+                    elif slot_in_process:
+                        # A slot moves whole: a member failing after another
+                        # member has moved fails the shift
+                        logger.warning(f"=> No place to shift {elems[i]} along {dich}")
+                        return False
                     else:
-                        # Terminate successfully if the first elem from slot fails
-                        # unsuccessfully if any other elem fails
-                        res = not slot_in_process
-                        if not res:
-                            logger.warning(
-                                f"=> No place to shift {elems[i]} along {dich}"
-                            )
-                        return res
+                        # The first member of a slot failing ends the shift
+                        return True
                 num -= 1
             slots_shifted += 1
 
@@ -882,80 +946,103 @@ class Mapper:
 
         return True
 
-    def _fill_empty_terminals(self, dich: Dichotomy) -> bool:
-        """Adds neutral elements to match to empty masks within the given dichotomy
-        that (1) have a sibling with some elements fit or (2) are necessary.
-
-        Case (1) is applicable only to the zeroth level.
+    def _shift_element(self, e: Element, dich: Dichotomy, mask: Mask, n: int) -> bool:
+        """Refits the element into the n-th slot of the given mask, flipping
+        the pos digit of its stance at the dichotomy.
         """
-        lvl, dpt = dich.level, dich.depth
-        enum_elems = self.prc.mapping.enumerate_elems
+        old_stance = str(e.stance)
+        new_stance = e.stance.copy()
+        new_stance.pos[dich.d] = mask.num_key[-1]
+        new_stance.rep[dich.d] = mask.rep + n
+        if not self._fit_element(e, new_stance, dich.d):
+            return False
+        dpt = e.stance.depth
+        logger.debug(
+            f"[L{dich.level}|D{dpt}] Shifted {e} from {old_stance} to {new_stance}"
+        )
+        return True
 
-        def get_sides() -> tuple[
-            list[Element], list[list[int]], list[dict[str, list[int]]]
-        ]:
-            elems = self.prc.mapping.get_stack(lvl, interval=True)
-            nk = [dich.masks[i].num_key for i in range(2)]
-            hits = [enum_elems(nk[i], elems, dich.d) for i in range(2)]
-            return elems, nk, hits
+    def _fill_empty_terminals(self, e: Element, dich: Dichotomy) -> bool:
+        """Fills the empty masks of the given terminal dichotomy with neutral
+        elements where they are necessary or have an occupied sibling.
+        """
+        if not self._fill_necessary(e, dich):
+            return False
+        if dich.level == 0 and not self._fill_siblings(e, dich):
+            return False
+        return True
 
-        # Find and fill empty necessary mask slots
-        elems, nk, hits = get_sides()
-        # logger.debug(f"Filling {dich} with l={hits[0]},r={hits[1]}")
+    def _enumerate_sides(
+        self, dich: Dichotomy
+    ) -> tuple[list[Element], list[list[int]], list[dict[str, list[int]]]]:
+        """Returns the current interval elements together with the num keys
+        of the dichotomy's masks and the elements enumerated under each key.
+        """
+        elems = self.prc.mapping.get_stack(dich.level, interval=True)
+        keys = [dich.masks[i].num_key for i in range(2)]
+        hits = [self.prc.mapping.enumerate_elems(k, elems, dich.d) for k in keys]
+        return elems, keys, hits
+
+    def _fill_necessary(self, e: Element, dich: Dichotomy) -> bool:
+        """Inserts a neutral element into an empty mask whose necessity
+        requires it, placed after the elements preceding the branch.
+        """
+        elems, keys, hits = self._enumerate_sides(dich)
         to_fill = []
         for i, mask in enumerate(dich.masks):
             if mask.necessities[0] and not hits[i]:
-                prs = enum_elems(nk[i], elems, dich.d, True)
+                prs = self.prc.mapping.enumerate_elems(keys[i], elems, dich.d, True)
                 if prs:
                     last_index = [idx for slot in prs.values() for idx in slot][-1]
                     op_stance = Stance(
-                        pos=nk[1 - i],
-                        rep=[0] * len(nk[1 - i]),
+                        pos=keys[1 - i],
+                        rep=[0] * len(keys[1 - i]),
                         depth=mask.depth,
                     )
                     to_fill.append(([last_index], mask, op_stance))
-        if not self._neutralize(to_fill, lvl, dpt, compensate=False):
-            return False
+        return self._neutralize(e, to_fill, dich.level, dich.depth, compensate=False)
 
-        # Find and fill empty sibling slots (level 0 only)
-        if lvl == 0:
-            elems, nk, hits = get_sides()
-            if hits[0] and not hits[1]:
-                occupied, empty = (0, 1)
-            elif hits[1] and not hits[0]:
-                occupied, empty = (1, 0)
-            else:
-                return True
-            to_fill = []
-            for slot in hits[occupied]:
-                slot_hits = hits[occupied][slot]
-                slot_mask = dich.masks[empty]
-                slot_stances = elems[hits[occupied][slot][0]].stance.copy()
-                to_fill.append((slot_hits, slot_mask, slot_stances))
-            if not self._neutralize(to_fill, lvl, dpt, compensate=True):
-                return False
-
-        return True
+    def _fill_siblings(self, e: Element, dich: Dichotomy) -> bool:
+        """Inserts a neutral element next to every occupied slot of the given
+        dichotomy whose sibling slot on the other mask is empty.
+        """
+        elems, _, hits = self._enumerate_sides(dich)
+        if hits[0] and not hits[1]:
+            occupied, empty = (0, 1)
+        elif hits[1] and not hits[0]:
+            occupied, empty = (1, 0)
+        else:
+            return True
+        to_fill = []
+        for slot in hits[occupied]:
+            slot_hits = hits[occupied][slot]
+            slot_mask = dich.masks[empty]
+            slot_stances = elems[hits[occupied][slot][0]].stance.copy()
+            to_fill.append((slot_hits, slot_mask, slot_stances))
+        return self._neutralize(e, to_fill, dich.level, dich.depth, compensate=True)
 
     def _neutralize(
         self,
+        e: Element,
         to_fill: list[tuple[list[int], Mask, Stance]],
         lvl: int,
         dpt: int,
         compensate: bool,
     ) -> bool:
-        """Inserts neutral elements at the given addresses for the given level
-        and depth.
+        """Creates and fits a neutral element for every given address (the
+        target stance is derived by flipping the given sibling stance) and
+        splices the fitted neutrals in.
         """
-        # logger.debug(f"Neutralizing on level {lvl} at {to_fill}")
         elems = self.prc.mapping.get_stack(lvl, interval=True)
         for indices, neut_mask, op_stance in to_fill:
             # Masks without a configured neutral for this depth (any mask
             # outside the lowest level-0 terminals, or a depth beyond the
             # configured list) cannot be filled; skip them rather than crash.
-            if not neut_mask.tneuts or dpt >= len(neut_mask.tneuts):
-                continue
-            if not neut_mask.tneuts[dpt]:
+            if (
+                not neut_mask.tneuts
+                or dpt >= len(neut_mask.tneuts)
+                or not neut_mask.tneuts[dpt]
+            ):
                 continue
             op_stance.pos[-1] = 1 - op_stance.pos[-1]
             t = self.prc.alphabet.get_token(neut_mask.tneuts[dpt])
@@ -972,85 +1059,32 @@ class Mapper:
             else:
                 slot = 1
                 insert_index = max(indices)
-
-            base_order = elems[insert_index].head.tok.base.order
-            slot_order = slot - 1 if compensate else 1
-            neut.head.tok.base.order = base_order + slot_order
-
-            if not self.e.molar and self.e.content[0].level != self.e.level:
-                self.e.content.insert(insert_index + slot, neut)
-
-            stack = self.prc.mapping.get_stack(lvl)
-            stack.insert(self.prc.mapping.cur_bdr[lvl] + insert_index + slot, neut)
+            self._insert_neutral(e, neut, elems, insert_index, slot, lvl, compensate)
 
         return True
 
-    def _validate_mapping(self) -> bool:
-        """Checks that every stance in the current element's content
-        complies with terminal permissions.
+    def _insert_neutral(
+        self,
+        e: Element,
+        neut: Element,
+        elems: list[Element],
+        index: int,
+        slot: int,
+        lvl: int,
+        compensate: bool,
+    ) -> None:
+        """Splices the fitted neutral into the stream order, the content of
+        the element being closed, and the element stack.
         """
-        level = 0
-        elems = self.e.content
-        cnt = 0
-        addr = None
-        for e in elems:
-            if e.level != 0:
-                continue
-            cnt = cnt + 1 if e.stance.pos + e.stance.rep[:-1] == addr else 0
-            addr = e.stance.pos + e.stance.rep[:-1]
+        base_order = elems[index].head.tok.base.order
+        neut.head.tok.base.order = base_order + (slot - 1 if compensate else 1)
 
-            rev = bool(self.prc.grules.revs[level][0][e.num])
-            addrs = [e for e in elems if e.stance.pos + e.stance.rep[:-1] == addr]
+        if not e.molar and e.content[0].level != e.level:
+            e.content.insert(index + slot, neut)
 
-            perms = self.prc.srules.tperms[e.num]
-            priority = cnt if not rev else len(addrs) - 1 - cnt
-            depth_perms = perms[min(e.stance.depth, len(perms) - 1)]
-            # A priority beyond the permission list means more elements landed
-            # at this address than the slot licenses: the element is unpermitted.
-            if priority >= len(depth_perms):
-                logger.warning(
-                    f"-> No permission slot for priority {priority} at {e.stance}"
-                )
-                return False
-            perm = depth_perms[priority]
-
-            aclass = e.head.tok.base.aclass
-            base = str(e.head.tok.base)
-            if not any([base in perm or aclass in perm, aclass == "wildcard"]):
-                logger.warning(
-                    f"-> No permission for '{e.head}'/'{aclass}' at {e.stance}"
-                )
-                return False
-
-        return True
-
-    def _close_dichotomies(self, dich: Dichotomy | None = None) -> bool:
-        """For dichotomies downstream of the given dichotomy, performs
-        the finalizing operations: shift the mappings for the non-binary ones,
-        add neutral elements as needed for the terminal ones.
-
-        If no dichotomy is given, starts from the last fitted branch
-        of the topmost dichotomy for the current element.
-        """
-        if dich is None:
-            elems = self.e.content
-            level, depth = elems[0].level, elems[0].stance.depth
-            dich = self.prc.masker.get_dichs(Stance(depth=depth), level)[0]
-        else:
-            elems = None
-            level, depth = dich.level, dich.depth
-        res = True
-        stance = Stance(pos=dich.masks[dich.pointer or 0].num_key, depth=depth)
-        dichs = self.prc.masker.get_dichs(stance, level)
-        invert = bool(dich.pointer or 0)
-
-        for cdich in dichs:
-            if cdich.nb:
-                res = res and self._shift_nonbinary_mappings(cdich, invert=invert)
-            if cdich.terminal:
-                res = res and self._fill_empty_terminals(cdich)
-
-        return res
+        stack = self.prc.mapping.get_stack(lvl)
+        stack.insert(self.prc.mapping.cur_bdr[lvl] + index + slot, neut)
+        return
 
     def _fit_element(
         self,
@@ -1079,31 +1113,44 @@ class Mapper:
                 return False
         return True
 
-    def determine_stance(self, e: Element) -> bool:
-        """Sets the given element as current and  produces the stance for it
-        by deciding the dichotomies.
+    def _validate_mapping(self, e: Element) -> bool:
+        """Checks that every stance in the given element's content complies
+        with terminal permissions.
         """
-        self.e = e
-        for _ in range(0, sum(self.prc.grules.struct[e.level])):
-            dich = self.prc.masker.get_dichs(e.stance, e.level)[0]
-            if not self._decide_dichotomy(dich):
-                raise ParsingFailure(f"Failed to parse '{e}'")
+        level = 0
+        elems = e.content
+        cnt = 0
+        addr = None
+        for el in elems:
+            if el.level != 0:
+                continue
+            cnt = cnt + 1 if el.stance.pos + el.stance.rep[:-1] == addr else 0
+            addr = el.stance.pos + el.stance.rep[:-1]
+
+            rev = bool(self.prc.grules.revs[level][0][el.num])
+            addrs = [x for x in elems if x.stance.pos + x.stance.rep[:-1] == addr]
+
+            perms = self.prc.srules.tperms[el.num]
+            priority = cnt if not rev else len(addrs) - 1 - cnt
+            depth_perms = perms[min(el.stance.depth, len(perms) - 1)]
+            # A priority beyond the permission list means more elements landed
+            # at this address than the slot licenses: the element is unpermitted.
+            if priority >= len(depth_perms):
+                logger.warning(
+                    f"-> No permission slot for priority {priority} at {el.stance}"
+                )
+                return False
+            perm = depth_perms[priority]
+
+            aclass = el.head.tok.base.aclass
+            base = str(el.head.tok.base)
+            if not any([base in perm or aclass in perm, aclass == "wildcard"]):
+                logger.warning(
+                    f"-> No permission for '{el.head}'/'{aclass}' at {el.stance}"
+                )
+                return False
+
         return True
-
-    def close(self, e: Element) -> None:
-        """Sets the given element as current, closes the corresponding dichotomy
-        and applies special rules to validate its content.
-        """
-        self.e = e
-        if e.molar:
-            return
-        if not self._close_dichotomies():
-            raise ParsingFailure("Failed to close the dichotomies")
-
-        if not self._validate_mapping():
-            raise ParsingFailure("Failed to validate the mapping")
-
-        return
 
 
 class Interpreter:
