@@ -23,6 +23,7 @@ dev = [
     "mkdocstrings[python]>=1.0.4",
     "ruff>=0.15.20",
     "pysonar>=1.6.0.4905",
+    "hypothesis>=6.156.1",
 ]
 
 [tool.ruff]

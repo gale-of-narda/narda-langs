@@ -77,7 +77,7 @@ class Processor:
             return False
         logger.info(f"Successfully parsed '{instr}'")
         # Applying the obtained mapping to the trees
-        for lvl in self.levels:
+        for lvl in range(self.last_level + 1):
             if lvl < len(self.levels) - 1:
                 elems = [e.preheader.content for e in self.mapping.elems[lvl + 1]]
             else:
@@ -86,10 +86,9 @@ class Processor:
                 tree = Tree(self.grules.struct[lvl], lvl)
                 self.trees[lvl].append(tree)
                 self.interpreter.apply(es, tree)
-                if self.max_level is None or self.max_level >= lvl:
-                    self.interpreter.determine_ctype(tree)
-                    self.interpreter.determine_ptype(tree)
-                    self.interpreter.interpret(tree)
+                self.interpreter.determine_ctype(tree)
+                self.interpreter.determine_ptype(tree)
+                self.interpreter.interpret(tree)
         return True
 
     def get_stances(self, lvl: int = -1) -> list[Stance]:
@@ -335,10 +334,11 @@ class Streamer:
         """
         held: tuple[Token, int] | None = None
         for t in self._tokenize(instr):
-            if t.base.asubcat == "guiding":
-                self._steer(t)
-            if t.base.asubcat == "content" or t.base.aclass == "wildcard":
-                held = self._pair_swapper(t, held)
+            if self.prc.max_level is None or t.base.level <= self.prc.max_level:
+                if t.base.asubcat == "guiding":
+                    self._steer(t)
+                if t.base.asubcat == "content" or t.base.aclass == "wildcard":
+                    held = self._pair_swapper(t, held)
         if held is not None:
             raise ParsingFailure("Swapper left unclosed by the end of input")
         self._complete()
@@ -347,9 +347,12 @@ class Streamer:
     def _steer(self, t: Token) -> None:
         """Routes a guiding token to the structure operations: a separator
         seals its level, a popper closes and a pusher opens a complex
-        embedding, each sealing the levels below first.
+        embedding, each sealing the levels below first. Tokens steering a level
+        beyond the parsing maximum are ignored, since its stack is not built.
         """
         lvl = t.base.level
+        if lvl > self.prc.last_level:
+            return
         if t.base.aclass == "separator":
             self._seal(lvl)
         elif t.is_popper(lvl) and self.prc.mapping.cur_dpt[lvl] > 0:
@@ -499,13 +502,14 @@ class Streamer:
         open complexes and wraps the interval of every level bottom-up, so
         that the given level continues from completed lower-level elements.
         """
+        m = self.prc.mapping
         if lvl > self.prc.last_level:
             return
         floor = lvl
-        while floor > 0 and self.prc.mapping.get_interval(floor - 1):
+        while floor > 0 and m.get_interval(floor - 1):
             floor -= 1
         for level in range(floor, lvl + 1):
-            if level > 0:
+            if m.cur_dpt[level] > 0:
                 self._close_complexes(level)
             self._wrap_interval(level)
         return
@@ -541,16 +545,19 @@ class Streamer:
         fits it in place of its content, and decreases the current depth.
         """
         m = self.prc.mapping
+        if m.cur_dpt[lvl] <= 0:
+            raise ParsingFailure("Attempted to pop to a negative depth")
         while m.cur_dpt[lvl] > 0:
             # Closing only operates on the latest item in the element buffer,
             # which must also be a list of elements
             parent = content = m.elems[lvl]
             for _ in range(m.cur_dpt[lvl]):
+                if not content:
+                    raise ParsingFailure("Attempted to close an empty complex")
                 if not isinstance(content[-1], list):
                     return
                 if len(content[-1]) == 0:
-                    del content[-1]
-                    return
+                    raise ParsingFailure("Attempted to wrap an empty complex")
                 parent, content = content, content[-1]
 
             e = Element(content, level=lvl)
@@ -573,8 +580,10 @@ class Streamer:
         Necessary in case the corresponding tokens were omitted by the end
         of the input string.
         """
+        m = self.prc.mapping
         for level in range(self.prc.last_level + 1):
-            self._close_complexes(level)
+            if m.cur_dpt[level] > 0:
+                self._close_complexes(level)
             self._wrap_interval(level)
         return
 
@@ -758,6 +767,9 @@ class Mapper:
             return
         if not self._close_dichotomies(e):
             raise ParsingFailure("Failed to close the dichotomies")
+
+        if not self._fill_necessary_terminals(e):
+            raise ParsingFailure("Failed to fill the necessary terminals")
 
         if not self._validate_mapping(e):
             raise ParsingFailure("Failed to validate the mapping")
@@ -962,6 +974,24 @@ class Mapper:
         )
         return True
 
+    def _fill_necessary_terminals(self, e: Element) -> bool:
+        """Checks every terminal dichotomy of the element — across all branches,
+        not only the one the content entered — for empty necessary terminals.
+        Runs once per close, above the bottom level only: those levels configure
+        no neutral fillers, so an empty necessary terminal rejects the parse. The
+        bottom level fills its own necessary terminals in place (`_fill_empty_
+        terminals`), where the content actually flows, so it is left untouched.
+        """
+        content = e.content
+        level, depth = content[0].level, content[0].stance.depth
+        if level == 0:
+            return True
+        res = True
+        for dich in self.prc.masker.get_dichs(Stance(depth=depth), level):
+            if dich.terminal:
+                res = res and self._fill_necessary(e, dich)
+        return res
+
     def _fill_empty_terminals(self, e: Element, dich: Dichotomy) -> bool:
         """Fills the empty masks of the given terminal dichotomy with neutral
         elements where they are necessary or have an occupied sibling.
@@ -985,12 +1015,18 @@ class Mapper:
 
     def _fill_necessary(self, e: Element, dich: Dichotomy) -> bool:
         """Inserts a neutral element into an empty mask whose necessity
-        requires it, placed after the elements preceding the branch.
+        requires it, placed after the elements preceding the branch. Only the
+        bottom level configures neutral fillers; above it an empty necessary
+        terminal cannot be filled and fails the parse instead.
         """
         elems, keys, hits = self._enumerate_sides(dich)
         to_fill = []
         for i, mask in enumerate(dich.masks):
             if mask.necessities[0] and not hits[i]:
+                if dich.level > 0:
+                    raise ParsingFailure(
+                        f"Empty necessary terminal {mask} on level {dich.level}"
+                    )
                 prs = self.prc.mapping.enumerate_elems(keys[i], elems, dich.d, True)
                 if prs:
                     last_index = [idx for slot in prs.values() for idx in slot][-1]
@@ -1355,9 +1391,14 @@ class Interpreter:
     ) -> str:
         """Prints out the given dichotomic tree with mapped elements."""
         if tree is None:
-            tree = self.prc.trees[0][-1]
+            level = self.prc.trees[0]
         elif isinstance(tree, int):
-            tree = self.prc.trees[tree][-1]
+            level = self.prc.trees[tree]
+
+        if len(level) == 0:
+            return "No tree to draw"
+        else:
+            tree = level[-1]
 
         st = str(tree)
 

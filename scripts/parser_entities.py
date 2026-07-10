@@ -1,7 +1,7 @@
 from math import log
 
 from scripts.parser_dataclasses import Feature, Stance, Token
-from scripts.util import binary, concat, digits
+from scripts.util import ParsingFailure, binary, concat, digits
 
 
 class Mapping:
@@ -289,6 +289,10 @@ class Mask:
     def match(self, e: Element, pos: int = 0, ignore_pos: bool = False) -> bool:
         """Checks if the given string fits the element at the given position."""
         head = e.preheader.get_matching_head(e.stance.depth)
+        # A non-molar matching head means the element has no molar host to match
+        # on (e.g. a word made purely of an embedding): the parse is malformed.
+        if not head.molar:
+            raise ParsingFailure(f"Matching head {head!r} is not molar")
         aclass, lit = head.tok.base.aclass, head.tok.lit
         # If freeze is True, fitting to the mask is forbidden
         if self.freeze:
@@ -329,10 +333,14 @@ class Element:
             self.token: Token | None = content
             self.content: list[Element] = []
             self.molar: bool = True
-        else:
+        elif isinstance(content, list) and all(
+            [isinstance(c, Element) for c in content]
+        ):
             self.token = None
             self.content = content
             self.molar = False
+        else:
+            raise ValueError(f"Cannot create an element with content {content}")
         self.level: int = level
         self.heads: list[Element] = []
         self.stance: Stance = stance or Stance()
@@ -384,7 +392,8 @@ class Element:
         leaves are always molar, so this is the token-carrying counterpart to
         ``content`` (which now only ever holds child elements).
         """
-        assert self.token is not None, f"Expected a molar element, got {self!r}"
+        if self.token is None:
+            raise ValueError(f"Expected a molar element, got {self!r}")
         return self.token
 
     @property
@@ -436,13 +445,22 @@ class Element:
         where n is the difference between the element's current stance depth
         and the given depth. Used for matching elements to masks.
 
-        If no depth is given, no stance exists, or no heads are set,
+        If no depth is given, no stance exists, no heads are set,
+        or the number n is greater than the number of heads,
         returns the main head.
         """
-        if depth is None or self.stance is None or not self.heads:
+        head_num = self.stance.depth - (depth or 0)
+        if any(
+            [
+                depth is None,
+                self.stance is None,
+                not self.heads,
+                head_num >= len(self.heads),
+            ]
+        ):
             return self.head
         else:
-            return self.heads[self.stance.depth - depth]
+            return self.heads[head_num]
 
 
 class Tree:
