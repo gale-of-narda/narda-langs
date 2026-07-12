@@ -16,6 +16,7 @@ from scripts.parser_dataclasses import (
     Dialect,
     Feature,
     GeneralRules,
+    ParsingResult,
     SpecialRules,
     Stance,
     Symbol,
@@ -61,22 +62,38 @@ class Processor:
         self.streamer = Streamer(self)
         return
 
-    def process(self, instr: str, verbose: bool = False) -> bool:
-        """Parses the input string and applies the parsing to the trees."""
+    def process(
+        self, instr: str, verbose: bool = False, limit_alphabet: bool = False
+    ) -> ParsingResult:
+        """Parses the input string, applies the parsing to the trees, and
+        reports the outcome as a ParsingResult (see docs/result.md). Each
+        property starts false and is set true when its condition is reached:
+        intelligibility inside `feed`, grammaticality once `feed` returns
+        without error, and interpretability once every tree is interpreted with
+        no feature left unresolved.
+
+        When limit_alphabet is set, a non-alphabetic character fails the parse
+        the moment the stream reaches it: intelligibility is set false (the
+        only case that does so). Otherwise such characters are ignored.
+        """
         logger.setLevel(logging.DEBUG if verbose else logging.INFO)
         logger.info(f"Parsing '{instr}'")
         # Resetting the parameters
+        self.result = ParsingResult()
         self.mapping = Mapping(self.levels)
         self.trees = [[] for _ in self.levels]
         self.masker.construct()
         # Parsing the string
         try:
-            self.streamer.feed(instr)
+            self.streamer.feed(instr, limit_alphabet)
         except ParsingFailure:
             logger.info(f"Failed to parse '{instr}'")
-            return False
+            self.result.grammaticality = False
+            return self.result
         logger.info(f"Successfully parsed '{instr}'")
+        self.result.grammaticality = True
         # Applying the obtained mapping to the trees
+        interpretable = True
         for lvl in range(self.last_level + 1):
             if lvl < len(self.levels) - 1:
                 elems = [e.preheader.content for e in self.mapping.elems[lvl + 1]]
@@ -88,8 +105,9 @@ class Processor:
                 self.interpreter.apply(es, tree)
                 self.interpreter.determine_ctype(tree)
                 self.interpreter.determine_ptype(tree)
-                self.interpreter.interpret(tree)
-        return True
+                interpretable = self.interpreter.interpret(tree) and interpretable
+        self.result.interpretability = interpretable
+        return self.result
 
     def get_stances(self, lvl: int = -1) -> list[Stance]:
         """Produces the list of stances of the elements of the given level."""
@@ -233,8 +251,8 @@ class Loader:
 
     def load_features(self) -> list[Feature]:
         """Loads and validates the features describing the functions and their
-        arguments from features.tsv against the Feature schema. A feature with a
-        content type is bound to it; the rest are untyped.
+        arguments from features.tsv against the Feature schema. Every feature
+        belongs to a language level; its blank properties match any input.
         """
         return self.load_tsv("features.tsv", Feature)
 
@@ -308,11 +326,18 @@ class Loader:
     def build_dialect(self, features: list[Feature], types: list[Type]) -> Dialect:
         """Builds and validates the dialect through the pydantic pipeline,
         supplying the level/rank structure for the composition-type checks, then
-        attaches the separately loaded feature and type description lists.
+        attaches the separately loaded feature and type description lists. The
+        features are grouped by language level, keeping the file order within
+        each level; a feature with a level outside the structure is rejected.
         """
         struct = self.params["rules_general"]["struct"]
         dialect = self.load_yaml("dialect", Dialect, {"struct": struct})
-        dialect.features = features
+        grouped: list[list[Feature]] = [[] for _ in struct]
+        for f in features:
+            if not 0 <= f.lvl < len(struct):
+                raise ValueError(f"Feature level {f.lvl} is out of range: {f!r}")
+            grouped[f.lvl].append(f)
+        dialect.features = grouped
         dialect.types = types
         return dialect
 
@@ -321,19 +346,29 @@ class Streamer:
     """Takes an input string and creates a stream of tokens to be parsed,
     dispatching content tokens to element parsing and guiding tokens to the
     depth and level structure operations.
+
+    Parsing is strictly incremental: the input is consumed in a single forward
+    pass, one character at a time. Only `feed` ever holds the raw string; it
+    is converted to a character iterator at once, and every pipeline stage is
+    a generator over the previous one. A stage may buffer only what the cursor
+    has not yet emitted (pending insertions in front of it) and may consult
+    state recorded while parsing earlier characters, but it can never re-read
+    consumed input or operate on the string as a whole.
     """
 
     def __init__(self, prc: Processor) -> None:
         self.prc = prc
         return
 
-    def feed(self, instr: str) -> bool:
+    def feed(self, instr: str, limit_alphabet: bool = False) -> bool:
         """Processes the stream of tokens according to their alphabetic
         parameters. Content tokens are parsed as language elements, guiding
-        tokens steer the depth and level structure of the parsing.
+        tokens steer the depth and level structure of the parsing. When
+        limit_alphabet is set, a non-alphabetic character fails the parse as
+        unintelligible instead of being dropped.
         """
         held: tuple[Token, int] | None = None
-        for t in self._tokenize(instr):
+        for t in self._tokenize(iter(instr), limit_alphabet):
             if self.prc.max_level is None or t.base.level <= self.prc.max_level:
                 if t.base.asubcat == "guiding":
                     self._steer(t)
@@ -341,6 +376,9 @@ class Streamer:
                     held = self._pair_swapper(t, held)
         if held is not None:
             raise ParsingFailure("Swapper left unclosed by the end of input")
+        # Reaching completion means every character was intelligible: the whole
+        # input tokenized and steered without raising.
+        self.prc.result.intelligibility = True
         self._complete()
         return True
 
@@ -397,14 +435,18 @@ class Streamer:
         self._account_breakers(t, late=True)
         return
 
-    def _tokenize(self, instr: str) -> Iterator[Token]:
-        """Groups the symbolized characters of the input string into tokens:
+    def _tokenize(
+        self, chars: Iterator[str], limit_alphabet: bool
+    ) -> Iterator[Token]:
+        """Groups the symbolized characters of the input stream into tokens:
         a base symbol starts a token and the following modifiers of its class
         attach to it. A trailing separator token is dropped.
         """
         t: Token | None = None
         s: Symbol | None = None
-        for s in self._symbolize(self._elongate(self._normalize(instr))):
+        for s in self._symbolize(
+            self._elongate(self._normalize(chars)), limit_alphabet
+        ):
             if s.acat == "Base":
                 if t is not None:
                     yield t
@@ -414,15 +456,25 @@ class Streamer:
         if t is not None and s is not None and s.aclass != "separator":
             yield t
 
-    def _symbolize(self, chars: Iterator[tuple[int, str]]) -> Iterator[Symbol]:
+    def _symbolize(
+        self, chars: Iterator[tuple[int, str]], limit_alphabet: bool
+    ) -> Iterator[Symbol]:
         """Wraps every alphabetic character into a symbol carrying its
-        alphabet parameters and stream position; the rest are dropped.
+        alphabet parameters and stream position. A non-alphabetic character is
+        dropped, or, when limit_alphabet is set, fails the parse on the spot
+        as unintelligible — the only case that sets intelligibility to false.
         """
         lookup = self.prc.alphabet.lookup
         for i, ch in chars:
             params = lookup.get(ch)
-            if params is not None:
-                yield replace(params, order=i)
+            if params is None:
+                if limit_alphabet:
+                    self.prc.result.intelligibility = False
+                    raise ParsingFailure(
+                        f"Encountered a non-alphabetic character {ch}"
+                    )
+                continue
+            yield replace(params, order=i)
 
     def _elongate(self, chars: Iterator[tuple[int, str]]) -> Iterator[tuple[int, str]]:
         """Replaces a content character that repeats the previous one of its
@@ -445,16 +497,31 @@ class Streamer:
             prev = cache if cache is not None else ch
             yield i, ch
 
-    def _normalize(self, instr: str) -> Iterator[tuple[int, str]]:
-        """Lowercases and NFD-decomposes the input string and applies the free
-        substitutions, yielding every character with its stream position.
+    def _normalize(self, chars: Iterator[str]) -> Iterator[tuple[int, str]]:
+        """NFD-decomposes and lowercases the character stream and applies the
+        free substitutions, yielding every character with its stream position.
+        NFD is applied per combining sequence: characters are buffered until
+        the next starter arrives, so the cursor only ever expands characters
+        in front of itself and never re-reads consumed input.
         """
         free = self.prc.alphabet.free
         i = 0
-        for ch in (c.lower() for c in unicodedata.normalize("NFD", instr)):
-            for sub in free.get(ch, ch):
-                yield i, sub
-                i += 1
+
+        def flush(buffer: str) -> Iterator[tuple[int, str]]:
+            nonlocal i
+            for ch in (c.lower() for c in unicodedata.normalize("NFD", buffer)):
+                for sub in free.get(ch, ch):
+                    yield i, sub
+                    i += 1
+
+        buffer = ""
+        for ch in chars:
+            if unicodedata.combining(ch) == 0 and buffer:
+                yield from flush(buffer)
+                buffer = ""
+            buffer += ch
+        if buffer:
+            yield from flush(buffer)
 
     def _add(self, e: Element) -> None:
         """Stances the given element at the current depth of its level,
@@ -894,8 +961,12 @@ class Mapper:
         for cdich in dichs:
             if cdich.nb:
                 res = res and self._shift_nonbinary_mappings(cdich, invert=invert)
-            if cdich.terminal:
-                res = res and self._fill_empty_terminals(e, cdich)
+            # Only the bottom level fills empty terminals with neutrals (its
+            # necessary ones, and those with an occupied sibling); higher levels
+            # enforce necessity by rejection in `_fill_necessary_terminals`.
+            if cdich.terminal and cdich.level == 0:
+                res = res and self._fill_necessary(e, cdich)
+                res = res and self._fill_siblings(e, cdich)
 
         return res
 
@@ -975,31 +1046,25 @@ class Mapper:
         return True
 
     def _fill_necessary_terminals(self, e: Element) -> bool:
-        """Checks every terminal dichotomy of the element — across all branches,
-        not only the one the content entered — for empty necessary terminals.
-        Runs once per close, above the bottom level only: those levels configure
-        no neutral fillers, so an empty necessary terminal rejects the parse. The
-        bottom level fills its own necessary terminals in place (`_fill_empty_
-        terminals`), where the content actually flows, so it is left untouched.
+        """Rejects the parse if a necessary terminal is left empty in any branch
+        of the tree, not only the one the content entered. Runs once at close,
+        above the bottom level only: those levels configure no neutral fillers,
+        so a missing necessary element cannot be repaired. The bottom level
+        fills its necessary terminals in place during closure (`_fill_necessary`).
         """
         content = e.content
         level, depth = content[0].level, content[0].stance.depth
         if level == 0:
             return True
-        res = True
         for dich in self.prc.masker.get_dichs(Stance(depth=depth), level):
-            if dich.terminal:
-                res = res and self._fill_necessary(e, dich)
-        return res
-
-    def _fill_empty_terminals(self, e: Element, dich: Dichotomy) -> bool:
-        """Fills the empty masks of the given terminal dichotomy with neutral
-        elements where they are necessary or have an occupied sibling.
-        """
-        if not self._fill_necessary(e, dich):
-            return False
-        if dich.level == 0 and not self._fill_siblings(e, dich):
-            return False
+            if not dich.terminal:
+                continue
+            _, _, hits = self._enumerate_sides(dich)
+            for mask, occupied in zip(dich.masks, hits, strict=True):
+                if mask.necessities[0] and not occupied:
+                    raise ParsingFailure(
+                        f"Empty necessary terminal {mask} on level {level}"
+                    )
         return True
 
     def _enumerate_sides(
@@ -1014,19 +1079,14 @@ class Mapper:
         return elems, keys, hits
 
     def _fill_necessary(self, e: Element, dich: Dichotomy) -> bool:
-        """Inserts a neutral element into an empty mask whose necessity
-        requires it, placed after the elements preceding the branch. Only the
-        bottom level configures neutral fillers; above it an empty necessary
-        terminal cannot be filled and fails the parse instead.
+        """Inserts a neutral element into an empty necessary terminal of the
+        given bottom-level dichotomy, placed after the elements preceding the
+        branch.
         """
         elems, keys, hits = self._enumerate_sides(dich)
         to_fill = []
         for i, mask in enumerate(dich.masks):
             if mask.necessities[0] and not hits[i]:
-                if dich.level > 0:
-                    raise ParsingFailure(
-                        f"Empty necessary terminal {mask} on level {dich.level}"
-                    )
                 prs = self.prc.mapping.enumerate_elems(keys[i], elems, dich.d, True)
                 if prs:
                     last_index = [idx for slot in prs.values() for idx in slot][-1]
@@ -1067,7 +1127,8 @@ class Mapper:
     ) -> bool:
         """Creates and fits a neutral element for every given address (the
         target stance is derived by flipping the given sibling stance) and
-        splices the fitted neutrals in.
+        splices each fitted neutral into the stream order, the wrap's content,
+        and the element stack.
         """
         elems = self.prc.mapping.get_stack(lvl, interval=True)
         for indices, neut_mask, op_stance in to_fill:
@@ -1086,41 +1147,22 @@ class Mapper:
             if not self._fit_element(neut, op_stance, term_only=True):
                 logger.warning(f"[L{lvl}|D{dpt}] Could not fit {neut} to {op_stance}")
                 return False
-
             logger.debug(f"[L{lvl}|D{dpt}] Inserting {neut} with stance {op_stance}")
 
             if compensate:
                 slot = op_stance.pos[-1] if not neut_mask.rev else 1 - op_stance.pos[-1]
-                insert_index = min(indices) if slot == 0 else max(indices)
+                index = min(indices) if slot == 0 else max(indices)
             else:
-                slot = 1
-                insert_index = max(indices)
-            self._insert_neutral(e, neut, elems, insert_index, slot, lvl, compensate)
+                slot, index = 1, max(indices)
+            neut.head.tok.base.order = elems[index].head.tok.base.order + (
+                slot - 1 if compensate else 1
+            )
+            if not e.molar and e.content[0].level != e.level:
+                e.content.insert(index + slot, neut)
+            stack = self.prc.mapping.get_stack(lvl)
+            stack.insert(self.prc.mapping.cur_bdr[lvl] + index + slot, neut)
 
         return True
-
-    def _insert_neutral(
-        self,
-        e: Element,
-        neut: Element,
-        elems: list[Element],
-        index: int,
-        slot: int,
-        lvl: int,
-        compensate: bool,
-    ) -> None:
-        """Splices the fitted neutral into the stream order, the content of
-        the element being closed, and the element stack.
-        """
-        base_order = elems[index].head.tok.base.order
-        neut.head.tok.base.order = base_order + (slot - 1 if compensate else 1)
-
-        if not e.molar and e.content[0].level != e.level:
-            e.content.insert(index + slot, neut)
-
-        stack = self.prc.mapping.get_stack(lvl)
-        stack.insert(self.prc.mapping.cur_bdr[lvl] + index + slot, neut)
-        return
 
     def _fit_element(
         self,
@@ -1300,17 +1342,23 @@ class Interpreter:
 
         return
 
-    def interpret(self, tree: Tree) -> None:
+    def interpret(self, tree: Tree) -> bool:
         """Inscribes interpretations defined in the dialect to the tree nodes
-        depending on their content.
+        depending on their content, then interprets the embedded trees. Returns
+        whether every interpretable node resolved to a feature; wildcards are
+        exempt and never counted, since no feature describes them.
         """
+        resolved = True
         # Find features for the tree nodes and their compounds
         nodes = [n for n in tree.all_nodes if n.terminal and n.content]
         for node in nodes:
             if not node.content:
                 continue
             e = node.content[0]
+            if e.header.tok.base.aclass == "wildcard":
+                continue
             feature = self.prc.dialect.get_feature(
+                tree.level,
                 e.header.tok.base.index,
                 e.header.tok.base.aclass,
                 node.stance,
@@ -1318,12 +1366,13 @@ class Interpreter:
                 tree.ctype,
             )
             if not feature:
+                resolved = False
                 continue
             node.feature = feature
         # Interpret the embedded trees
         for c in tree.complexes:
-            self.interpret(c)
-        return
+            resolved = self.interpret(c) and resolved
+        return resolved
 
     def describe(
         self,

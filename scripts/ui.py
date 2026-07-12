@@ -5,7 +5,7 @@ renderables for console output. Kept free of any parsing logic.
 from rich import box
 from rich.table import Table
 
-from scripts.parser_dataclasses import Type
+from scripts.parser_dataclasses import ParsingResult, Type
 from scripts.parser_entities import Node, Tree
 
 
@@ -75,6 +75,32 @@ def feature_table(
             + ", ".join(str(n) for n in featureless)
             + "[/dim]"
         )
+    return table
+
+
+def result_table(result: ParsingResult) -> Table:
+    """Builds a table of the four parsing criteria and their outcomes, each
+    shown as ✓ (met), ✗ (unmet), or ⍰ (undetermined).
+    """
+    table = Table(
+        box=box.SIMPLE_HEAD,
+        highlight=True,
+        title_style="bold",
+    )
+    table.add_column("Criterion", style="cyan", no_wrap=True)
+    table.add_column("Result", justify="center")
+    glyph = {
+        True: "[green]✓[/green]",
+        False: "[red]✗[/red]",
+        None: "[dim]⍰[/dim]",
+    }
+    for name, value in (
+        ("Intelligibility", result.intelligibility),
+        ("Grammaticality", result.grammaticality),
+        ("Interpretability", result.interpretability),
+        ("Felicity", result.felicity),
+    ):
+        table.add_row(name, glyph[value])
     return table
 
 

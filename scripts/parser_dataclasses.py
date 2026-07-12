@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from math import log
-from typing import Self, cast
+from typing import ClassVar, Self, cast
 
 from pydantic import (
     BaseModel,
@@ -13,6 +13,51 @@ from pydantic import (
 )
 
 from scripts.util import concat, digits, flatten, is_int, lemb_rank_sizes
+
+
+@dataclass
+class ParsingResult:
+    """The four properties a string may satisfy as a language element, in the
+    order of docs/result.md. Each starts undetermined (None) and is set as its
+    condition is decided while the processor runs; `well_formed` is their
+    syntactic conjunction.
+
+    The criteria form a dependency chain: an unintelligible string cannot be
+    properly parsed, an incomplete mapping cannot be fully interpreted, and a
+    statement lacking interpretability even in part cannot be assessed for
+    felicity. Failing one criterion therefore fails every criterion after it,
+    which `__setattr__` enforces no matter where the failure is recorded.
+    """
+
+    intelligibility: bool | None = None
+    grammaticality: bool | None = None
+    interpretability: bool | None = None
+    felicity: bool | None = None
+
+    # The dependency chain, in field order.
+    CRITERIA: ClassVar[tuple[str, ...]] = (
+        "intelligibility",
+        "grammaticality",
+        "interpretability",
+        "felicity",
+    )
+
+    def __setattr__(self, name: str, value: object) -> None:
+        """Sets the attribute; a criterion set to False also drags every
+        criterion downstream of it in the chain to False.
+        """
+        object.__setattr__(self, name, value)
+        if value is False and name in self.CRITERIA:
+            for downstream in self.CRITERIA[self.CRITERIA.index(name) + 1 :]:
+                object.__setattr__(self, downstream, False)
+
+    @property
+    def well_formed(self) -> bool:
+        """True when the string is intelligible, grammatical, and interpretable.
+        Felicity is a pragmatic property and lies beyond well-formedness.
+        """
+        wf = all([self.intelligibility, self.grammaticality, self.interpretability])
+        return wf
 
 
 class Alphabet(BaseModel):
@@ -358,29 +403,33 @@ class SpecialRules(BaseModel):
 
 class Feature(BaseModel):
     """A holder for a feature with all the parameters that describe it. Doubles
-    as the row schema for params/features.tsv: 'ctype' is optional (blank means
-    untyped), the four stance vectors are digit strings decoded into integer
-    lists, and the numeric columns are coerced to integers.
+    as the row schema for params/features.tsv: 'lvl' is the language level the
+    feature belongs to, the four stance vectors are digit strings decoded into
+    integer lists, and the numeric columns are coerced to integers. Any matched
+    property left blank ('ctype', 'content_class', 'index', or a stance vector)
+    leaves the feature unrestricted in that dimension; only the level is always
+    required and matched exactly.
     """
 
+    lvl: int
     ctype: str | None
     pos: list[int]
     rep: list[int]
     cpos: list[int]
     crep: list[int]
-    content_class: str
+    content_class: str | None
     priority: int
-    index: int
+    index: int | None
     function_name: str
     argument_gloss: str
     argument_name: str
     argument_description: str
 
-    @field_validator("ctype", mode="before")
+    @field_validator("ctype", "content_class", "index", mode="before")
     @classmethod
     def _blank_to_none(cls, value: object) -> object:
-        """A blank content type marks an untyped feature."""
-        return value or None
+        """A blank property leaves the feature unrestricted in that dimension."""
+        return None if value is None or value == "" else value
 
     @field_validator("pos", "rep", "cpos", "crep", mode="before")
     @classmethod
@@ -419,7 +468,9 @@ class Dialect(BaseModel):
 
     ctypes: list
     ptypes: list
-    features: list[Feature] = Field(default_factory=list)
+    # Features grouped by language level: features[lvl] holds the features of
+    # that level in file order, one (possibly empty) list per level.
+    features: list[list[Feature]] = Field(default_factory=list)
     types: list[Type] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -477,28 +528,35 @@ class Dialect(BaseModel):
 
     def get_feature(
         self,
+        level: int,
         index: int,
         content_class: str,
         stance: Stance,
         cstance: Stance | None,
         ctype: str | None,
     ) -> Feature | None:
-        """Returns the feature described by the stances and character index,
-        or None if no feature is found. A feature bound to a content type matches
-        only when that type equals the supplied one; an untyped feature matches
-        regardless of the supplied content type.
+        """Returns the first feature of the given level that matches the
+        stances and character index, or None if no feature is found. A blank
+        feature property matches any input in that dimension; a non-blank one
+        must equal the input. Only the level is scanned exactly: features of
+        other levels are never considered.
         """
-        feature_list = [
-            f
-            for f in self.features
-            if (f.ctype or ctype) == ctype and f.content_class == content_class
-        ]
-        for f in feature_list:
-            if all((f.index == index, f.pos == stance.pos, f.rep == stance.rep)):
-                if (not cstance and not f.cpos and not f.crep) or (
-                    cstance and f.cpos == cstance.pos and f.crep == cstance.rep
-                ):
-                    return f
+        for f in self.features[level]:
+            if f.ctype is not None and f.ctype != ctype:
+                continue
+            if f.content_class is not None and f.content_class != content_class:
+                continue
+            if f.index is not None and f.index != index:
+                continue
+            if f.pos and f.pos != stance.pos:
+                continue
+            if f.rep and f.rep != stance.rep:
+                continue
+            if f.cpos and (cstance is None or f.cpos != cstance.pos):
+                continue
+            if f.crep and (cstance is None or f.crep != cstance.rep):
+                continue
+            return f
         return None
 
 

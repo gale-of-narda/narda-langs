@@ -6,6 +6,7 @@ import typer
 from rich.console import Console
 from rich.logging import RichHandler
 
+from scripts import ui
 from scripts.parser_procedure import Processor
 
 
@@ -29,6 +30,9 @@ logging.basicConfig(
 def parse(
     text: str,
     verbose: bool = typer.Option(False, "--verbose", "-v"),
+    limit_alphabet: bool = typer.Option(
+        False, "--limit_alphabet", help="Reject any non-alphabetic character."
+    ),
     level: Annotated[
         int | None,
         typer.Option("--level", "-l", help="Max level to parse (default: all)."),
@@ -38,12 +42,15 @@ def parse(
     if level is not None:
         processor.max_level = level
     try:
-        res = processor.process(text, verbose=verbose)
+        res = processor.process(
+            text, verbose=verbose, limit_alphabet=limit_alphabet
+        )
     finally:
         processor.max_level = old_level
-    success = f"[bold green]String '{text}' is grammatical[/bold green]"
-    fail = f"[bold red]String '{text}' is not grammatical[/bold red]"
-    res_string = success if res else fail
+    console.print(ui.result_table(res))
+    success = f"[bold green]String '{text}' is well-formed[/bold green]"
+    fail = f"[bold red]String '{text}' is not well-formed[/bold red]"
+    res_string = success if res.well_formed else fail
     console.print(res_string)
     return
 
