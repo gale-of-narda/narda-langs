@@ -28,7 +28,7 @@ from scripts.util import (
     ParsingFailure,
     concat,
     parse_value,
-    read_yaml,
+    read_toml,
     resource_path,
 )
 
@@ -50,8 +50,8 @@ class Processor:
         rolls back on failure; this method only turns parameters into objects.
         """
         self.alphabet = self.loader.build_alphabet()
-        self.grules = self.loader.build_grules()
-        self.srules = self.loader.build_srules()
+        self.grules = self.loader.build_grules(self.alphabet)
+        self.srules = self.loader.build_srules(self.alphabet)
         self.dialect = self.loader.build_dialect(
             self.loader.load_features(), self.loader.load_types()
         )
@@ -132,10 +132,10 @@ class Loader:
 
     # Standard parameter sets mapped to their file names (under PARAM_DIR).
     _FILES = {
-        "alphabet": "alphabet.yaml",
-        "rules_general": "rules_general.yaml",
-        "rules_special": "rules_special.yaml",
-        "dialect": "dialect.yaml",
+        "alphabet": "alphabet.toml",
+        "rules_general": "rules_general.toml",
+        "rules_special": "rules_special.toml",
+        "dialect": "dialect.toml",
     }
     PARAM_DIR = "params"
 
@@ -174,8 +174,8 @@ class Loader:
 
     def set(self, name: str, value: str) -> None:
         """Sets the parameter with the given top-level name to the given value.
-        A string value is parsed as YAML when possible (so numbers, lists and
-        mappings are handled), otherwise kept as a plain string.
+        A string value is parsed as a TOML value when possible (so numbers,
+        arrays and inline tables are handled), otherwise kept as a plain string.
 
         Alphabet and dialect parameters cannot be set; they may only be loaded
         from a file.
@@ -229,7 +229,7 @@ class Loader:
     def load_raw(self, name: str) -> dict:
         """Loads the raw data of a standard parameter set from the base path."""
         rel = f"{self.PARAM_DIR}/{self._FILES[name]}"
-        return read_yaml(self.path + rel)
+        return read_toml(self.path + rel)
 
     def load_all_raw(self) -> dict[str, dict]:
         """Loads the raw data of every standard parameter set."""
@@ -247,7 +247,7 @@ class Loader:
                 f"'{base}' is not a standard parameter file (expected one of: "
                 f"{allowed})"
             )
-        return name, read_yaml(path)
+        return name, read_toml(path)
 
     def load_features(self) -> list[Feature]:
         """Loads and validates the features describing the functions and their
@@ -262,7 +262,7 @@ class Loader:
         rows raise pydantic's ValidationError.
 
         This is a standalone, schema-driven validator for tabular parameters,
-        independent of the YAML shape checks in _validate; it scales to any TSV
+        the row-oriented counterpart of load_mapping; it scales to any TSV
         parameter file by supplying a matching model.
         """
         path = Path(resource_path(self.path + f"{self.PARAM_DIR}/{filename}"))
@@ -275,7 +275,7 @@ class Loader:
                 rows.append(model.model_validate(line))
         return rows
 
-    def load_yaml[M: BaseModel](
+    def load_mapping[M: BaseModel](
         self, name: str, model: type[M], context: dict | None = None
     ) -> M:
         """Validates the loaded raw parameter `name` against the given pydantic
@@ -284,8 +284,7 @@ class Loader:
         the model's validators need. Malformed data raises pydantic's
         ValidationError.
 
-        The mapping-parameter counterpart of load_tsv and the pydantic
-        replacement for the _validate_* shape checks. It validates
+        The mapping-parameter counterpart of load_tsv. It validates
         self.params[name] (populated by load_all_raw), so the parameter stays
         transactional: set/reset/get/load keep working through self.params.
         """
@@ -303,25 +302,25 @@ class Loader:
         checked.
         """
         levels = len(self.params["rules_general"]["struct"])
-        return self.load_yaml("alphabet", Alphabet, {"levels": levels})
+        return self.load_mapping("alphabet", Alphabet, {"levels": levels})
 
-    def build_grules(self) -> GeneralRules:
-        """Builds and validates the general rules through the pydantic pipeline.
-        The rules validate against their own structure, so no context is needed.
+    def build_grules(self, alphabet: Alphabet) -> GeneralRules:
+        """Builds and validates the general rules through the pydantic pipeline,
+        supplying the prebuilt alphabet so the index-list `perms` are rebuilt into
+        mask strings from the content classes.
         """
-        return self.load_yaml("rules_general", GeneralRules)
+        return self.load_mapping("rules_general", GeneralRules, {"alphabet": alphabet})
 
-    def build_srules(self) -> SpecialRules:
+    def build_srules(self, alphabet: Alphabet) -> SpecialRules:
         """Builds and validates the special rules through the pydantic pipeline,
         supplying the terminal-slot count (2 ** bottom-level dichotomies) and the
-        alphabet's content characters so SpecialRules can enforce the
-        cross-parameter content checks.
+        prebuilt alphabet so the index-list `tperms`/`tneuts` are rebuilt into
+        strings (membership strings and single characters) from the content
+        classes.
         """
         struct = self.params["rules_general"]["struct"]
-        content = self.params["alphabet"]["bases"]["content"]
-        chars = {c for group in content.values() for s in group for c in s}
-        context = {"slots": 2 ** sum(struct[0]), "content_chars": chars}
-        return self.load_yaml("rules_special", SpecialRules, context)
+        context = {"slots": 2 ** sum(struct[0]), "alphabet": alphabet}
+        return self.load_mapping("rules_special", SpecialRules, context)
 
     def build_dialect(self, features: list[Feature], types: list[Type]) -> Dialect:
         """Builds and validates the dialect through the pydantic pipeline,
@@ -331,7 +330,7 @@ class Loader:
         each level; a feature with a level outside the structure is rejected.
         """
         struct = self.params["rules_general"]["struct"]
-        dialect = self.load_yaml("dialect", Dialect, {"struct": struct})
+        dialect = self.load_mapping("dialect", Dialect, {"struct": struct})
         grouped: list[list[Feature]] = [[] for _ in struct]
         for f in features:
             if not 0 <= f.lvl < len(struct):

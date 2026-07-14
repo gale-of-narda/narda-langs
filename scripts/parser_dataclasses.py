@@ -12,7 +12,14 @@ from pydantic import (
     model_validator,
 )
 
-from scripts.util import concat, digits, flatten, is_int, lemb_rank_sizes
+from scripts.util import (
+    concat,
+    digits,
+    flatten,
+    is_int,
+    lemb_rank_sizes,
+    tree_node_count,
+)
 
 
 @dataclass
@@ -64,7 +71,7 @@ class Alphabet(BaseModel):
     """A holder for the characters used in the language.
     Has functions for removing non-alphabetic and representing alphabetic characters.
 
-    Doubles as the schema for params/alphabet.yaml. 'extra' is allowed so that
+    Doubles as the schema for params/alphabet.toml. 'extra' is allowed so that
     the derived character dictionaries built by _build_dicts can be attached to
     the model.
     """
@@ -102,12 +109,23 @@ class Alphabet(BaseModel):
         if "content" not in bases or "guiding" not in bases:
             raise ValueError("bases")
         content = bases["content"]
-        if not (
-            isinstance(content, dict)
-            and content
-            and all(isinstance(v, list) for v in content.values())
-        ):
+        if not (isinstance(content, dict) and content):
             raise ValueError("content")
+        # Each content class is a pair [structure, characters]: the structure is
+        # a list of non-negative integers defining a dichotomic tree, and the
+        # characters are single-character strings, one per tree node, so their
+        # count must equal the number of nodes the structure defines.
+        for cls, spec in content.items():
+            if not (
+                isinstance(spec, list)
+                and len(spec) == 2
+                and isinstance(spec[0], list)
+                and all(is_int(x) and x >= 0 for x in spec[0])
+                and isinstance(spec[1], list)
+                and all(isinstance(c, str) and len(c) == 1 for c in spec[1])
+                and len(spec[1]) == tree_node_count(spec[0])
+            ):
+                raise ValueError(cls)
         guiding = bases["guiding"]
         if not (
             isinstance(guiding, dict)
@@ -185,15 +203,34 @@ class Alphabet(BaseModel):
         self.free = self.substitutions["free"]
         self.elongators = self.substitutions["elongator"]
 
-        # Groups that follow the level/quality/index layout: every base group
-        # and the breaker modifiers. Swappers carry their own shape and are
-        # indexed separately below.
-        d = {"Base": self.bases, "Modifier": {"breaker": self.breakers}}
-
         # Creating a flat dictionary of characters with all parameters encoded.
         # Each entry is a Symbol template (order 0) copied with the occurrence
         # order when a character is read; see get_token and Streamer._tokenize.
         self.lookup: dict[str, Symbol] = {}
+
+        # Content characters occupy the nodes of their class tree in list order,
+        # so each character's index is its node number; the structures are kept
+        # for addressing characters by tree position. Content is bottom-level.
+        self.structs: dict[str, list[int]] = {}
+        for aclass, (struct, chars) in self.content.items():
+            self.structs[aclass] = struct
+            for i, val in enumerate(chars):
+                self.lookup[val] = Symbol(
+                    content=val,
+                    acat="Base",
+                    asubcat="content",
+                    aclass=aclass,
+                    level=0,
+                    quality=0,
+                    index=i,
+                )
+
+        # Guiding bases and breaker modifiers follow the level/quality/index
+        # layout. Swappers carry their own shape and are indexed separately below.
+        d = {
+            "Base": {"guiding": self.bases["guiding"]},
+            "Modifier": {"breaker": self.breakers},
+        }
         for cat in d:
             for subcat in d[cat]:
                 for aclass in d[cat][subcat]:
@@ -257,14 +294,92 @@ class Alphabet(BaseModel):
             return Token(base=replace(spec))
         raise ValueError(f"Tried to get a token with the illegal character {st}")
 
+    @property
+    def class_names(self) -> list[str]:
+        """The content class names, in the order that indexes them."""
+        return list(self.content)
+
+    def class_chars(self, cls: int) -> list[str]:
+        """The characters of the content class with the given number."""
+        return self.content[self.class_names[cls]][1]
+
+    def _resolve_perm(
+        self, entry: object, *, special_ok: bool
+    ) -> tuple[int | None, list[int] | None, str]:
+        """Validates an index-list permission entry against the content classes,
+        splitting it into (class number or None if empty, character indices or
+        None for the whole class, special-symbol string). The entry is [] for an
+        empty permission, [c] for a whole class, or [c, [indices...]] for a set
+        of characters; masks may append a "?" or "!" symbol. Raises ValueError on
+        any malformed or out-of-range entry.
+        """
+        if not isinstance(entry, list):
+            raise ValueError(f"permission entry must be a list, got {entry!r}")
+        if not entry:
+            return None, None, ""
+        cls = entry[0]
+        if not is_int(cls) or not 0 <= cls < len(self.class_names):
+            raise ValueError(f"invalid content class {cls!r} in {entry!r}")
+        pool = self.class_chars(cls)
+        indices: list[int] | None = None
+        special = ""
+        for extra in entry[1:]:
+            if isinstance(extra, list):
+                if not all(is_int(i) and 0 <= i < len(pool) for i in extra):
+                    raise ValueError(f"character index out of range in {entry!r}")
+                indices = cast("list[int]", extra)
+            elif special_ok and extra in ("?", "!"):
+                special = extra
+            else:
+                raise ValueError(f"invalid permission element {extra!r} in {entry!r}")
+        return cls, indices, special
+
+    def mask_perm(self, entry: object) -> str:
+        """Builds a mask permission string (as used in `perms`) from an index-list
+        entry: the special symbol, then the class name for a whole class or the
+        characters otherwise, parenthesized when there is more than one variant.
+        """
+        cls, indices, special = self._resolve_perm(entry, special_ok=True)
+        if cls is None:
+            return ""
+        if indices is None:
+            return special + self.class_names[cls]
+        chars = "".join(self.class_chars(cls)[i] for i in indices)
+        return special + (f"({chars})" if len(indices) > 1 else chars)
+
+    def membership_perm(self, entry: object) -> str:
+        """Builds a terminal-permission membership string (as used in `tperms`)
+        from an index-list entry: the class name for a whole class, or the plain
+        concatenation of the selected characters.
+        """
+        cls, indices, _ = self._resolve_perm(entry, special_ok=False)
+        if cls is None:
+            return ""
+        if indices is None:
+            return self.class_names[cls]
+        return "".join(self.class_chars(cls)[i] for i in indices)
+
+    def neutral_perm(self, entry: object) -> str:
+        """Builds a neutral character (as used in `tneuts`) from an index-list
+        entry: the single selected character, or "" for an empty entry.
+        """
+        cls, indices, _ = self._resolve_perm(entry, special_ok=False)
+        if cls is None:
+            return ""
+        if indices is None or len(indices) != 1:
+            raise ValueError(f"a neutral must be a single character, got {entry!r}")
+        return self.class_chars(cls)[indices[0]]
+
 
 class GeneralRules(BaseModel):
     """A holder for the general rules of the language, which deal with the mapping
     of elements to masks in relation to dichotomies.
 
-    Doubles as the schema for params/rules_general.yaml: 'struct' fixes the tree
+    Doubles as the schema for params/rules_general.toml: 'struct' fixes the tree
     shape per level; dichotomy-indexed params hold N entries per level and
-    node-indexed ones 2**N, while 'lembs' is rank-indexed. After validation,
+    node-indexed ones 2**N, while 'lembs' is rank-indexed. 'perms' entries are
+    index-list permissions (see Alphabet.mask_perm) rebuilt into mask strings
+    from the alphabet supplied in the validation context. After validation,
     perms/revs/dembs/wilds are unraveled per mask.
     """
 
@@ -280,11 +395,13 @@ class GeneralRules(BaseModel):
     wilds: list
 
     @model_validator(mode="after")
-    def _check(self) -> Self:
+    def _check(self, info: ValidationInfo) -> Self:
         """Checks the general rules against the shape and value types implied by
         their own structure. Each rule pairs a group of like-shaped parameters
         with the entries expected per level and the predicate every leaf value
-        must satisfy; a failing check reports the offending parameter name.
+        must satisfy; a failing check reports the offending parameter name. The
+        'perms' entries are rebuilt into mask strings from the alphabet passed in
+        the validation context.
         """
         struct = self.struct
         if not (
@@ -309,7 +426,6 @@ class GeneralRules(BaseModel):
             ),
             (("revs", "wilds"), lambda n: 2**n, lambda x: is_int(x) and x in (0, 1)),
             (("dembs",), lambda n: 2**n, lambda x: is_int(x) and x >= -1),
-            (("perms",), lambda n: 2**n, lambda x: isinstance(x, str)),
         ]
         for names, length_of, ok in rules:
             for name in names:
@@ -335,6 +451,19 @@ class GeneralRules(BaseModel):
                 raise ValueError("lembs")
             if not all(is_int(x) and x >= -1 for x in flatten(ranks)):
                 raise ValueError("lembs")
+
+        # 'perms' holds one index-list permission per terminal node (2**N per
+        # level). Rebuild each into a mask string from the content classes of the
+        # alphabet supplied in the validation context.
+        alphabet = (info.context or {}).get("alphabet")
+        if alphabet is None:
+            raise ValueError("perms: alphabet context required")
+        if len(self.perms) != levels:
+            raise ValueError("perms")
+        for i, level in enumerate(self.perms):
+            if not isinstance(level, list) or len(level) != 2 ** sums[i]:
+                raise ValueError("perms")
+        self.perms = [[alphabet.mask_perm(e) for e in level] for level in self.perms]
 
         # Validation done; transform the terminal params in place.
         self._unravel_term_params()
@@ -371,21 +500,24 @@ class SpecialRules(BaseModel):
     """A holder for the special rules of the language, which deal with permitting
     or forbidding certain characters for certain stances post-mapping.
 
-    Doubles as the schema for params/rules_special.yaml: 'tperms' is one entry
-    per terminal node, each a per-depth list of permission strings; 'tneuts' is
-    one entry per terminal node, each a list of neutral-character strings.
+    Doubles as the schema for params/rules_special.toml: 'tperms' is one entry
+    per terminal node, each a per-depth list of index-list permissions; 'tneuts'
+    is one entry per terminal node, each a list of index-list neutrals. Both are
+    rebuilt into strings (membership strings and single characters) from the
+    alphabet supplied in the validation context.
     """
 
-    tperms: list[list[list[str]]]
-    tneuts: list[list[str]]
+    tperms: list
+    tneuts: list
 
     @model_validator(mode="after")
     def _check_content(self, info: ValidationInfo) -> Self:
         """Enforces the cross-parameter content rules when the validation context
         provides them: 'slots' (2 ** the bottom-level dichotomy count) fixes the
-        number of terminal nodes for both tperms and tneuts, and 'content_chars'
-        restricts each neutral to empty or a single content character. Without a
-        context only the structural shape above is enforced.
+        number of terminal nodes for both tperms and tneuts, and 'alphabet'
+        rebuilds each index-list permission into its string form (a membership
+        string for tperms, a single character for tneuts). Without a context only
+        the structural shape above is enforced.
         """
         context = info.context or {}
         slots = context.get("slots")
@@ -393,11 +525,23 @@ class SpecialRules(BaseModel):
             for name, value in (("tperms", self.tperms), ("tneuts", self.tneuts)):
                 if len(value) != slots:
                     raise ValueError(name)
-        chars = context.get("content_chars")
-        if chars is not None:
-            for slot in self.tneuts:
-                if any(s != "" and (len(s) != 1 or s not in chars) for s in slot):
+        alphabet = context.get("alphabet")
+        if alphabet is not None:
+            for node in self.tperms:
+                if not isinstance(node, list) or not all(
+                    isinstance(depth, list) for depth in node
+                ):
+                    raise ValueError("tperms")
+            self.tperms = [
+                [[alphabet.membership_perm(e) for e in depth] for depth in node]
+                for node in self.tperms
+            ]
+            for node in self.tneuts:
+                if not isinstance(node, list):
                     raise ValueError("tneuts")
+            self.tneuts = [
+                [alphabet.neutral_perm(e) for e in node] for node in self.tneuts
+            ]
         return self
 
 
@@ -462,7 +606,7 @@ class Dialect(BaseModel):
     """A holder for the parameters that guide the interpretation of node features.
 
     Doubles as the schema for the composition and permutation types in
-    params/dialect.yaml; the 'features' and 'types' description lists are loaded
+    params/dialect.toml; the 'features' and 'types' description lists are loaded
     separately from the TSV files and attached by the Loader.
     """
 

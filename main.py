@@ -78,7 +78,7 @@ def load(
 
 @cli.command()
 def set(name: str, value: str) -> None:
-    """Sets a parameter to a value (parsed as JSON when possible)."""
+    """Sets a parameter to a value (parsed as TOML when possible)."""
     try:
         processor.loader.set(name, value)
         console.print(f"[green]Set '{name}'.[/green]")

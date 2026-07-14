@@ -5,11 +5,10 @@ component of the parser.
 import logging
 import os
 import sys
+import tomllib
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
-
-import yaml
+from typing import Any, TypeGuard
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +19,7 @@ class ParsingFailure(Exception):
         return
 
 
-def is_int(value: object) -> bool:
+def is_int(value: object) -> TypeGuard[int]:
     """True if value is an integer (booleans excluded)."""
     return isinstance(value, int) and not isinstance(value, bool)
 
@@ -47,16 +46,25 @@ def lemb_rank_sizes(struct_level: list[int]) -> list[int]:
     return sizes
 
 
-def parse_value(value: str) -> str | None:
-    """Parses a string as YAML when possible (so numbers, lists, mappings and
-    quoted strings are handled, consistently with the parameter files), otherwise
-    returns it unchanged. Non-string values pass through untouched.
+def tree_node_count(struct_level: list[int]) -> int:
+    """Total number of nodes in a tree of the given structure: the root plus
+    every successive rank of dichotomy splits, i.e. the sum of the per-rank node
+    counts (see lemb_rank_sizes).
+    """
+    return sum(lemb_rank_sizes(struct_level))
+
+
+def parse_value(value: str) -> object:
+    """Parses a string as a TOML value when possible (so numbers, arrays, inline
+    tables and quoted strings are handled, consistently with the parameter
+    files), otherwise returns it unchanged. Non-string values pass through
+    untouched.
     """
     if not isinstance(value, str):
         return value
     try:
-        return yaml.safe_load(value)
-    except yaml.YAMLError:
+        return tomllib.loads(f"_ = {value}")["_"]
+    except tomllib.TOMLDecodeError:
         return value
 
 
@@ -68,16 +76,16 @@ def resource_path(relative_path: str) -> str:
     return os.path.join(base_path, relative_path)
 
 
-def read_yaml(path: str) -> dict:
-    """Loads and returns the object parsed from the YAML file at the given
+def read_toml(path: str) -> dict:
+    """Loads and returns the object parsed from the TOML file at the given
     (resource-resolved) path.
     """
     full = Path(resource_path(path))
     try:
-        with full.open("r", encoding="utf-8") as f:
-            return yaml.safe_load(f)
-    except FileNotFoundError, yaml.YAMLError:
-        logger.exception(f"Failed to read YAML from {full}")
+        with full.open("rb") as f:
+            return tomllib.load(f)
+    except (FileNotFoundError, tomllib.TOMLDecodeError):
+        logger.exception(f"Failed to read TOML from {full}")
         raise
 
 
