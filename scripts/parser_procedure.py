@@ -113,6 +113,28 @@ class Processor:
         """Produces the list of stances of the elements of the given level."""
         return [e.stance for e in self.mapping.elems[lvl]]
 
+    def restore(
+        self,
+        lvl: int | None = None,
+        num: int | None = None,
+        show_neutrals: bool = False,
+    ) -> str:
+        """Restores the tokenized input from the saved mapping by concatenating
+        the token content of its elements on the given level (the highest parsed
+        level by default), separating the elements of each level and wrapping
+        complexes in embedders as defined by the alphabet's guiding glyphs. With a
+        number, only that single element of the level is restored. Neutral fillers
+        the parser inserted are omitted unless show_neutrals is set. Returns an
+        empty string when no content is saved.
+        """
+        if not hasattr(self, "mapping"):
+            return ""
+        if lvl is None:
+            lvl = self.last_level
+        return self.mapping.restore(
+            lvl, self.alphabet.separators, self.alphabet.embedders, num, show_neutrals
+        )
+
     @property
     def last_level(self) -> int:
         if self.max_level is not None:
@@ -434,9 +456,7 @@ class Streamer:
         self._account_breakers(t, late=True)
         return
 
-    def _tokenize(
-        self, chars: Iterator[str], limit_alphabet: bool
-    ) -> Iterator[Token]:
+    def _tokenize(self, chars: Iterator[str], limit_alphabet: bool) -> Iterator[Token]:
         """Groups the symbolized characters of the input stream into tokens:
         a base symbol starts a token and the following modifiers of its class
         attach to it. A trailing separator token is dropped.
@@ -469,9 +489,7 @@ class Streamer:
             if params is None:
                 if limit_alphabet:
                     self.prc.result.intelligibility = False
-                    raise ParsingFailure(
-                        f"Encountered a non-alphabetic character {ch}"
-                    )
+                    raise ParsingFailure(f"Encountered a non-alphabetic character {ch}")
                 continue
             yield replace(params, order=i)
 
@@ -1143,6 +1161,7 @@ class Mapper:
             op_stance.pos[-1] = 1 - op_stance.pos[-1]
             t = self.prc.alphabet.get_token(neut_mask.tneuts[dpt])
             neut = Element(t, op_stance, lvl)
+            neut.neutral = True
             if not self._fit_element(neut, op_stance, term_only=True):
                 logger.warning(f"[L{lvl}|D{dpt}] Could not fit {neut} to {op_stance}")
                 return False

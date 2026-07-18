@@ -42,16 +42,17 @@ def parse(
     if level is not None:
         processor.max_level = level
     try:
-        res = processor.process(
-            text, verbose=verbose, limit_alphabet=limit_alphabet
-        )
+        res = processor.process(text, verbose=verbose, limit_alphabet=limit_alphabet)
+        restored = processor.restore() if res.well_formed else ""
     finally:
         processor.max_level = old_level
     console.print(ui.result_table(res))
-    success = f"[bold green]String '{text}' is well-formed[/bold green]"
-    fail = f"[bold red]String '{text}' is not well-formed[/bold red]"
-    res_string = success if res.well_formed else fail
-    console.print(res_string)
+    if res.well_formed:
+        text_msg = f"Recognized '{restored}' as a well-formed string"
+        console.print(f"[bold green]{text_msg}[/bold green]")
+    else:
+        text_msg = f"Couldn't recognize a well-formed string in '{text}'."
+        console.print(f"[bold red]{text_msg}[/bold red]")
     return
 
 
@@ -140,6 +141,24 @@ def draw(
     tree = processor.trees[lvl][num]
     tree_string = processor.interpreter.draw_tree(tree)
     console.print(tree_string)
+    return
+
+
+@cli.command()
+def restore(
+    lvl: Annotated[
+        int | None, typer.Option(help="The level to restore (default: highest).")
+    ] = None,
+    num: Annotated[
+        int | None, typer.Option(help="Ordinal number of the element (default: all).")
+    ] = None,
+    show_neutrals: bool = typer.Option(
+        False, help="Include the neutral fillers the parser inserted."
+    ),
+) -> None:
+    """Restores the tokenized input from the last parse's mapping."""
+    result = processor.restore(lvl, num, show_neutrals)
+    console.print(result if result else "No content is saved")
     return
 
 

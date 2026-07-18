@@ -58,6 +58,84 @@ class Mapping:
                     matches[slot].append(i)
         return matches
 
+    def restore(
+        self,
+        level: int,
+        separators: list,
+        embedders: list,
+        num: int | None = None,
+        show_neutrals: bool = False,
+    ) -> str:
+        """Reconstructs the tokenized input as a string from the saved elements on
+        the given level, inserting the appropriate separator between the elements
+        of each level and wrapping every complex in its level's opening/closing
+        embedders. With a number, only that single element of the level is
+        restored; otherwise every element, in the order they were saved. Returns
+        an empty string when there is no content.
+
+        The `separators` and `embedders` are the alphabet's guiding glyphs, one
+        per level: elements of level L are joined by `separators[L - 1]`, and a
+        complex of level L is wrapped in `embedders[L]`. Embedders go before the
+        separators — a complex contributes its opening embedder ahead of the
+        separator that precedes it, matching the order in which a pusher embedder
+        and a separator occur in the token stream. Neutral fillers the parser
+        inserted are omitted unless `show_neutrals` is set.
+        """
+        elems = self.elems[level]
+        if num is not None:
+            elems = [elems[num]]
+        return self._render(elems, separators, embedders, show_neutrals)
+
+    @staticmethod
+    def _first_order(e: Element) -> int:
+        """The stream order of an element's earliest token — its leftmost surface
+        position. Recurses to a molar leaf, so it is safe for complexes (whose
+        head may itself be composite, unlike Element.order).
+        """
+        if e.molar:
+            return e.tok.order
+        return min(Mapping._first_order(c) for c in e.content)
+
+    def _render(
+        self,
+        elems: list[Element],
+        separators: list,
+        embedders: list,
+        show_neutrals: bool,
+    ) -> str:
+        """Renders a list of same-level sibling elements, joining them with their
+        level's separator and wrapping each complex in its embedders (placed
+        before the separators). See restore.
+
+        Level-0 siblings are rendered in surface order (by earliest token order),
+        which undoes token swaps: a swap appends the opening element after the
+        closing one, so the saved list is out of surface order exactly there. The
+        sort is stable and works on a copy, leaving the saved mapping untouched.
+        Unless `show_neutrals` is set, neutral fillers are dropped first.
+        """
+        if not show_neutrals:
+            elems = [e for e in elems if not e.neutral]
+        if not elems:
+            return ""
+        level = elems[0].level
+        if level == 0:
+            elems = sorted(elems, key=self._first_order)
+        sep = separators[level - 1] if level >= 1 else ""
+        out = ""
+        for i, e in enumerate(elems):
+            is_complex = (
+                not e.molar and bool(e.content) and e.content[0].level == e.level
+            )
+            opener, closer = embedders[e.level] if is_complex else ("", "")
+            joiner = sep if i > 0 else ""
+            inner = (
+                e.tok.content
+                if e.molar
+                else self._render(e.content, separators, embedders, show_neutrals)
+            )
+            out += opener + joiner + inner + closer
+        return out
+
 
 class Dichotomy:
     """A combination of the mask pair, parameters guiding the choice between them,
@@ -344,6 +422,9 @@ class Element:
         self.level: int = level
         self.heads: list[Element] = []
         self.stance: Stance = stance or Stance()
+        # Set when the element is a neutral filler inserted by the parser, so
+        # that restoration can hide it (see Mapping.restore).
+        self.neutral: bool = False
         return
 
     def __repr__(self) -> str:
